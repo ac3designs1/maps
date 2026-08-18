@@ -73,6 +73,12 @@ function isHereStop(s) {
   return q === "your location" || l === "your location";
 }
 function hereDisplay() { return "Your location"; }
+function stopPlaceholder(s, i, n) {
+  if (isHereStop(s)) return "Your location";
+  if (i === 0) return "Start from";
+  if (i === n - 1 && !S.trip?.roundtrip) return "Where to?";
+  return "Add stop";
+}
 function titleFromStops(trip) {
   const f = filledStops(trip);
   if (f.length === 0) return trip.title && trip.title !== "Untitled trip" ? trip.title : "Untitled trip";
@@ -217,6 +223,9 @@ function showTrip() {
   $("listScreen").classList.add("is-away");
   $("tripScreen").classList.add("is-open");
   setSnap(S.snap || "mid");
+  if (history.state?.tp !== 1) {
+    try { history.pushState({ tp: 1 }, ""); } catch {}
+  }
   requestAnimationFrame(() => {
     S.map?.invalidateSize();
     S.map?.dragging?.enable();
@@ -253,7 +262,9 @@ function renderContinue() {
   const trip = lastId && (S.records||[]).find(t=>t.id===lastId);
   if (!trip || $("tripScreen").classList.contains("is-open")) { card.classList.add("hidden"); return; }
   $("continueTitle").textContent = trip.title||"Untitled trip";
-  $("continueSub").textContent   = `${filledStops(trip).length} stops`;
+  const n = filledStops(trip).length;
+  const dur = trip.durationS ? ` · ${fmtDur(trip.durationS)}` : "";
+  $("continueSub").textContent = `${n} stop${n===1?"":"s"}${dur}`;
   card.onclick = () => openTrip(trip.id);
   card.classList.remove("hidden");
 }
@@ -265,12 +276,24 @@ function renderList() {
     .sort((a,b)=>(a.starred?0:1)-(b.starred?0:1)||b.updatedAt-a.updatedAt);
   const empty = $("emptyState");
   empty.classList.toggle("hidden", rows.length > 0);
+  const h2 = empty.querySelector("h2");
+  const p  = empty.querySelector("p");
+  const btn = $("btnEmptyNew");
+  if (S.trips.length && !rows.length) {
+    if (h2) h2.textContent = "No matches";
+    if (p) p.textContent = "Try a different name or place.";
+    btn?.classList.add("hidden");
+  } else {
+    if (h2) h2.textContent = "No trips yet";
+    if (p) p.innerHTML = "Add addresses, optimise your route,<br>and navigate stop by stop.";
+    btn?.classList.remove("hidden");
+  }
   $("tripList").innerHTML = rows.map(t => {
     const stats = t.durationS ? fmtDur(t.durationS) : relTime(t.updatedAt);
-    const words = (t.title||"?").trim().split(/\s+/);
+    const words = (t.title||"?").trim().split(/\s+/).filter(Boolean);
     const initials = words.length >= 2
-      ? (words[0][0]+words[1][0]).toUpperCase()
-      : (t.title||"?").replace(/\s+/g,"").slice(0,2).toUpperCase();
+      ? ((words[0][0]||"")+(words[1][0]||"")).toUpperCase()
+      : (t.title||"?").replace(/\s+/g,"").slice(0,2).toUpperCase() || "?";
     const badgeCls = t.starred ? "trip-badge starred-badge" : "trip-badge";
     return `<button type="button" class="trip-row" data-id="${t.id}">
       <span class="${badgeCls}">${t.starred?"★":esc(initials)}</span>
@@ -310,16 +333,18 @@ function openTrip(id) {
     }
   }
   rememberLast(id);
+  S.snap = "mid";
   syncStops(true);
   showTrip();
   scheduleRoute(false);
+  _analytics?.ping("open_trip");
 }
 
 function newTrip() {
   buzz();
   const trip = emptyTrip();
   setRecords([trip,...(S.records||readLocal()).filter(t=>t.id!==trip.id)]);
-  S.trip=trip; S.route=null; S.navigating=false; nudgeDismissed=false;
+  S.trip=trip; S.route=null; S.navigating=false; S.navI=0; nudgeDismissed=false;
   S.snap="full"; // set before showTrip so setSnap picks it up
   syncStops(true); renderList(); showTrip();
   // Pre-fill first stop with current location if available
@@ -330,6 +355,7 @@ function newTrip() {
     const target = S.here ? inputs[1] : inputs[0];
     target?.focus();
   }, 240);
+  _analytics?.ping("new_trip");
 }
 
 /* ─── save ─── */
@@ -473,6 +499,10 @@ function applyHit(hit) {
       const ni = $("stopList").querySelector(`.stop-input[data-id="${next.id}"]`);
       ni?.focus();
     }, 80);
+  } else if (geocodedStops().length >= 2) {
+    document.activeElement?.blur();
+    setSnap("mid");
+    setTimeout(() => { S.map?.invalidateSize(); drawMap(true); }, 280);
   }
 }
 
@@ -522,9 +552,10 @@ function makeRow(s,i,n) {
     <div class="stop-input-col">
       <input class="stop-input${s.query&&!Number.isFinite(s.lat)?" unresolved":""}"
         data-id="${s.id}" value="${esc(isHereStop(s)?hereDisplay():(s.query||s.label))}"
-        placeholder="Address or business"
+        placeholder="${esc(stopPlaceholder(s,i,n))}"
         autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false"
-        enterkeyhint="search" inputmode="search"/>
+        enterkeyhint="search" inputmode="${isHereStop(s)?"none":"search"}"
+        ${isHereStop(s)?"readonly":""}/>
       <div class="leg-meta"></div>
     </div>
     <div class="grip-btn" data-act="grip" data-id="${s.id}" aria-label="Reorder" role="button">
@@ -557,8 +588,12 @@ function updateRowMeta() {
     if (dot) dot.textContent = stopLabel(i,n);
     const input = row.querySelector(".stop-input");
     if (input) {
+      const here = isHereStop(s);
+      input.readOnly = here;
+      input.inputMode = here ? "none" : "search";
+      input.placeholder = stopPlaceholder(s, i, n);
       if (document.activeElement !== input) {
-        const val = isHereStop(s) ? hereDisplay() : (s.query||s.label||"");
+        const val = here ? hereDisplay() : (s.query||s.label||"");
         if (input.value !== val) input.value = val;
       }
       input.classList.toggle("unresolved", !!(input.value && !Number.isFinite(s.lat)));
@@ -611,8 +646,9 @@ function updateSummary() {
     return;
   }
   if (!r||n<2) {
-    title.textContent = n<2 ? "Add two places" : "No route yet";
-    sub.textContent   = `${filledStops().length} stops · no cap`;
+    const hereStart = isHereStop(S.trip.stops[0]);
+    title.textContent = n<2 ? (hereStart ? "Add a destination" : "Add two places") : "Can't find a route";
+    sub.textContent   = hereStart && n<2 ? "Search below or tap + Stop" : `${filledStops().length} stop${filledStops().length===1?"":"s"}`;
     start.disabled    = true;
     return;
   }
@@ -630,8 +666,10 @@ function updateNudge() {
   // Show when 3+ geocoded stops, not round trip, route loaded, not dismissed, not already optimised this session
   const show = !nudgeDismissed && !S.trip?.roundtrip && pts.length >= 3 && S.route && !S.routing;
   nudge.classList.toggle("hidden", !show);
+  $("btnOptimise")?.classList.toggle("is-hot", pts.length >= 3 && !S.routing);
 }
 $("nudgeOptimise")?.addEventListener("click", () => {
+  if (S.routing) return;
   nudgeDismissed = true;
   $("optimiseNudge").classList.add("hidden");
   if (geocodedStops().length < 3) return toast("Add at least 3 places first");
@@ -693,6 +731,7 @@ function bindStopInput(input) {
   input.addEventListener("input", () => {
     const stop = S.trip?.stops.find(s=>s.id===id);
     if (!stop) return;
+    if (input.readOnly) { showHereSuggest(); return; }
     const q = input.value.trim();
     const qn = q.toLowerCase();
     const lockedHere = !!(stop.here || isHereStop(stop));
@@ -771,7 +810,7 @@ $("stopList").addEventListener("click", e => {
     if (S.trip.stops.length<=2) S.trip.stops[i]={id:uid(),query:"",label:"",lat:null,lng:null};
     else S.trip.stops.splice(i,1);
     syncStops(true); scheduleSave(); scheduleRoute(false);
-    toast("Stop removed",()=>{ S.trip.stops=prev; syncStops(true); scheduleSave(); scheduleRoute(false); });
+    toast("Stop removed",()=>{ if (!S.trip) return; S.trip.stops=prev; syncStops(true); scheduleSave(); scheduleRoute(false); });
   }
 });
 
@@ -857,9 +896,10 @@ $("btnReverse").onclick = () => {
   pinHereFirst();
   syncStops(true); scheduleSave(); scheduleRoute(false);
   toast("Order reversed");
+  _analytics?.ping("reverse");
 };
 $("btnOptimise").onclick = () => {
-  if (!S.trip) return;
+  if (!S.trip || S.routing) return;
   compactEmptyStops();
   pinHereFirst();
   syncStops(true);
@@ -874,7 +914,14 @@ $("btnMore").onclick  = () => { if (!S.trip) return; openModal("More", moreBody(
 /* ─── map toggle ─── */
 $("btnMapToggle").onclick = () => {
   if (S.snap==="full") { document.activeElement?.blur(); hideSuggest(); setSnap("mid"); drawMap(true); }
-  else { setSnap("full"); setTimeout(()=>$("stopList").querySelector(".stop-input")?.focus(),200); }
+  else {
+    setSnap("full");
+    setTimeout(() => {
+      const inputs = [...$("stopList").querySelectorAll(".stop-input")];
+      const empty = inputs.find(el => !el.readOnly && !el.value.trim());
+      (empty || inputs.find(el => !el.readOnly) || inputs[0])?.focus();
+    }, 200);
+  }
 };
 
 /* ─── start / nav ─── */
@@ -891,11 +938,32 @@ $("btnNext").onclick = () => {
 };
 
 /* ─── back / locate ─── */
-$("btnBack").onclick = () => { hideSuggest(); saveTrip(); S.navigating=false; showList(); };
+function backToList() {
+  hideSuggest();
+  closeModal();
+  saveTrip();
+  S.navigating=false;
+  showList();
+}
+$("btnBack").onclick = () => {
+  if (!$("modal").classList.contains("hidden")) { closeModal(); return; }
+  if (!$("suggestBox").classList.contains("hidden")) { hideSuggest(); document.activeElement?.blur(); return; }
+  if (history.state?.tp === 1) { history.back(); return; }
+  backToList();
+};
+window.addEventListener("popstate", () => {
+  if ($("tripScreen").classList.contains("is-open")) backToList();
+});
 $("btnLocate").onclick = () => {
   if (!S.here) return toast("Location unavailable");
   S.map?.setView([S.here.lat,S.here.lng],15);
 };
+
+document.addEventListener("keydown", e => {
+  if (e.key !== "Escape") return;
+  if (!$("modal").classList.contains("hidden")) { closeModal(); return; }
+  hideSuggest();
+});
 
 /* ─── search ─── */
 $("tripSearch").addEventListener("input",e=>{ S.filter=e.target.value; renderList(); });
@@ -971,11 +1039,11 @@ function moreBody() {
   </div>
   <div class="msec">
     <button class="mrow" data-more="star">${ico(starSvg)}${t.starred?"Starred":"Star this trip"}<span class="mrow-sub">${t.starred?"★":""}</span></button>
-    <button class="mrow" data-more="round">${ico(`<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 1l4 4-4 4M7 23l-4-4 4-4"/><path d="M3 11V9a4 4 0 0 1 4-4h14M21 13v2a4 4 0 0 1-4 4H3"/></svg>`)}Round trip${chk(t.roundtrip)}</button>
+    <button class="mrow${t.roundtrip?" checked":""}" data-more="round">${ico(`<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 1l4 4-4 4M7 23l-4-4 4-4"/><path d="M3 11V9a4 4 0 0 1 4-4h14M21 13v2a4 4 0 0 1-4 4H3"/></svg>`)}Round trip${chk(t.roundtrip)}</button>
   </div>
   <div class="msec">
-    <button class="mrow" data-more="tolls">${ico(`<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="7" width="20" height="14" rx="2"/><path d="M12 11v6M9 14h6"/><path d="M7 7V5a5 5 0 0 1 10 0v2"/></svg>`)}Avoid tolls${chk(t.avoidTolls)}</button>
-    <button class="mrow" data-more="ferries">${ico(`<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"><path d="M2 21c.6.5 1.2 1 2.5 1 2.5 0 2.5-2 5-2 1.3 0 1.9.5 2.5 1 .6.5 1.2 1 2.5 1 2.5 0 2.5-2 5-2 1.3 0 1.9.5 2.5 1"/><path d="M19 11H5L3 8h18z"/><path d="M12 3v5M8 8V5h8v3"/></svg>`)}Avoid ferries${chk(t.avoidFerries)}</button>
+    <button class="mrow${t.avoidTolls?" checked":""}" data-more="tolls">${ico(`<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="7" width="20" height="14" rx="2"/><path d="M12 11v6M9 14h6"/><path d="M7 7V5a5 5 0 0 1 10 0v2"/></svg>`)}Avoid tolls${chk(t.avoidTolls)}</button>
+    <button class="mrow${t.avoidFerries?" checked":""}" data-more="ferries">${ico(`<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"><path d="M2 21c.6.5 1.2 1 2.5 1 2.5 0 2.5-2 5-2 1.3 0 1.9.5 2.5 1 .6.5 1.2 1 2.5 1 2.5 0 2.5-2 5-2 1.3 0 1.9.5 2.5 1"/><path d="M19 11H5L3 8h18z"/><path d="M12 3v5M8 8V5h8v3"/></svg>`)}Avoid ferries${chk(t.avoidFerries)}</button>
     <button class="mrow" data-more="refresh">${ico(`<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"><path d="M23 4v6h-6"/><path d="M1 20v-6h6"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>`)}Refresh route</button>
   </div>
   <div class="msec">
@@ -1031,7 +1099,7 @@ $("modalBody").addEventListener("click", e => {
       S.trip.stops=[{id:uid(),query:"",label:"",lat:null,lng:null},{id:uid(),query:"",label:"",lat:null,lng:null}];
       applyLocationToFirstStop();
       syncStops(true); scheduleSave(); scheduleRoute(false);
-      toast("Stops cleared",()=>{ S.trip.stops=prev; syncStops(true); scheduleSave(); scheduleRoute(false); });
+      toast("Stops cleared",()=>{ if (!S.trip) return; S.trip.stops=prev; syncStops(true); scheduleSave(); scheduleRoute(false); });
     },
     home()    {
       openModal("Set Home", pinPickerBody("home"));
@@ -1051,7 +1119,9 @@ $("modalBody").addEventListener("click", e => {
       S.trip=null; S.route=null; S.navigating=false;
       $("stopList").innerHTML="";
       showList(); renderList();
+      try { if (history.state?.tp === 1) history.back(); } catch {}
       toast("Trip deleted",()=>{ setRecords(mergeTrips(prev,S.records||[])); renderList(); });
+      _analytics?.ping("delete");
     },
   };
   handlers[act]?.();
@@ -1168,15 +1238,15 @@ async function routeNow(optimize) {
     }
     S.route=data; S.trip.distanceM=data.distanceM; S.trip.durationS=data.durationS;
     if (!optimize) _analytics?.ping("route", { stops: pts.length, km: Math.round((data.distanceM||0)/1000) });
-    drawMap(true); updateRowMeta(); scheduleSave();
+    drawMap(true); scheduleSave();
   } catch(err) {
     if (seq!==S.routeSeq||err.cancelled) return;
     toast(err.message);
   } finally {
     if (seq===S.routeSeq) {
       S.routing=false;
-      $("btnOptimise").classList.remove("loading");
-      updateSummary();
+      $("btnOptimise")?.classList.remove("loading");
+      updateRowMeta();
     }
   }
 }
@@ -1185,7 +1255,11 @@ async function routeNow(optimize) {
 function ensureMap() {
   if (S.map) return;
   S.map=L.map("map",{zoomControl:false,attributionControl:false,tap:false}).setView([S.bias.lat,S.bias.lng],11);
-  L.tileLayer("https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png",{maxZoom:20}).addTo(S.map);
+  const dark = window.matchMedia?.("(prefers-color-scheme: dark)")?.matches;
+  L.tileLayer(dark
+    ? "https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png"
+    : "https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png",
+    { maxZoom: 20 }).addTo(S.map);
 }
 function mapPad() {
   const h = $("tripScreen").classList.contains("is-open") ? ($("sheet").offsetHeight || 200) : 24;
@@ -1498,9 +1572,26 @@ function importTripFromUrl() {
 
 /* ─── analytics ─── */
 const _analytics = (function() {
+  const DID_KEY = "maps.did";
   const sid = crypto.randomUUID?.() ?? `${Date.now()}-${Math.random().toString(16).slice(2)}`;
-  const rawFp = [navigator.language, screen.width, screen.height, Intl.DateTimeFormat().resolvedOptions().timeZone, navigator.hardwareConcurrency||0].join("|");
+  const ua = navigator.userAgent || "";
+  const platform = /iPhone|iPad|iPod/.test(ua) ? "iOS"
+    : /Android/.test(ua) ? "Android"
+    : /Mac/.test(ua) ? "Mac"
+    : /Win/.test(ua) ? "Windows"
+    : /Linux/.test(ua) ? "Linux"
+    : "Other";
+  const standalone = window.matchMedia("(display-mode:standalone)").matches || window.navigator.standalone === true;
+  const sessionMeta = () => ({
+    platform,
+    standalone,
+    tz: Intl.DateTimeFormat().resolvedOptions().timeZone || "",
+    lang: navigator.language || "",
+    w: window.innerWidth,
+    h: window.innerHeight,
+  });
   let did = "";
+  try { did = localStorage.getItem(DID_KEY) || ""; } catch {}
   const queued = [];
 
   function send(payload) {
@@ -1512,15 +1603,20 @@ const _analytics = (function() {
   }
 
   function ping(kind, meta) {
-    if (!did) { queued.push({ kind, meta }); return; }
-    send({ sid, did, kind, meta });
+    const extra = kind === "session" ? { ...sessionMeta(), ...(meta||{}) } : (meta||{});
+    if (!did) { queued.push({ kind, meta: extra }); return; }
+    send({ sid, did, kind, meta: extra });
   }
 
   (async () => {
-    try {
-      const buf = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(rawFp));
-      did = [...new Uint8Array(buf)].map(b=>b.toString(16).padStart(2,"0")).join("").slice(0,32);
-    } catch { did = rawFp.slice(0,32).replace(/[^a-z0-9]/g,"x"); }
+    if (!did) {
+      try {
+        const rawFp = [navigator.language, screen.width, screen.height, Intl.DateTimeFormat().resolvedOptions().timeZone, navigator.hardwareConcurrency||0, crypto.randomUUID?.()||Date.now()].join("|");
+        const buf = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(rawFp));
+        did = [...new Uint8Array(buf)].map(b=>b.toString(16).padStart(2,"0")).join("").slice(0,32);
+      } catch { did = `${Date.now().toString(16)}${Math.random().toString(16).slice(2)}`.slice(0,32); }
+      try { localStorage.setItem(DID_KEY, did); } catch {}
+    }
     queued.splice(0).forEach(q => send({ sid, did, kind: q.kind, meta: q.meta }));
   })();
 

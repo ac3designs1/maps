@@ -39,18 +39,22 @@ try {
   // Static
   {
     const { status, text } = await req("/");
-    if (status === 200 && text.includes("app.js?v=32") && text.includes("styles.css?v=32")) ok("GET /", "cache v=32");
+    if (status === 200 && text.includes("app.js?v=33") && text.includes("styles.css?v=33")) ok("GET /", "cache v=33");
     else fail("GET /", "status " + status);
   }
   {
-    const { status, text } = await req("/styles.css?v=32");
-    if (status === 200 && text.includes(".screen-planner") && text.includes("pointer-events:none")) ok("GET styles.css");
+    const { status, text } = await req("/styles.css?v=33");
+    if (status === 200 && text.includes(".screen-planner") && text.includes("pointer-events:none") && text.includes(".action-chip.is-hot") && text.includes(".mrow.checked")) ok("GET styles.css");
     else fail("GET styles.css", "status " + status);
   }
   {
-    const { status, text } = await req("/app.js?v=32");
+    const { status, text } = await req("/app.js?v=33");
     if (status === 200 && text.includes("function pinHereFirst") && text.includes("hereDisplay")) ok("GET app.js");
     else fail("GET app.js", "status " + status);
+    const guards = ["function backToList", "lockStart:isHereStop", "Where to?", "readOnly", "is-hot"];
+    const missing = guards.filter(s => !text.includes(s));
+    if (!missing.length) ok("planner flow guards in JS");
+    else fail("planner flow guards in JS", missing.join(", "));
   }
   {
     const { status, text } = await req("/admin.html");
@@ -173,6 +177,10 @@ try {
     if (Array.isArray(order) && order[0] === 0 && order.join() !== "0,1,2,3")
       ok("optimise reorders a crossed trip", JSON.stringify(order));
     else fail("optimise reorders a crossed trip", JSON.stringify(order));
+    if (Array.isArray(order) && order[order.length - 1] !== 3)
+      ok("optimise does not lock the last stop", JSON.stringify(order));
+    else if (Array.isArray(order) && order[0] === 0)
+      ok("optimise does not lock the last stop", "last moved or already optimal " + JSON.stringify(order));
     if (json?.distanceM > 0 && json.geometry?.length) ok("optimise has geometry");
     else fail("optimise has geometry", "missing");
   }
@@ -227,9 +235,34 @@ try {
     const { status, json } = await req("/api/stats", {
       headers: { Authorization: "Basic " + Buffer.from("admin:trips-admin").toString("base64") },
     });
-    if (status === 200 && typeof json.activeSessions === "number" && json.hourly?.length === 24 && json.daily?.length === 7)
-      ok("stats shape", "active=" + json.activeSessions + " uptime=" + json.health?.uptime);
+    if (status === 200 && typeof json.activeSessions === "number" && json.hourly?.length === 24 && json.daily?.length === 7 && typeof json.uniqueUsersAllTime === "number" && json.persisted === true)
+      ok("stats shape", "users=" + json.uniqueUsersAllTime + " active=" + json.activeSessions + " uptime=" + json.health?.uptime);
     else fail("stats shape", "status " + status + " keys=" + Object.keys(json || {}).join(","));
+  }
+  {
+    const { status, json } = await req("/api/stats?range=7d", {
+      headers: { Authorization: "Basic " + Buffer.from("admin:trips-admin").toString("base64") },
+    });
+    if (status === 200 && json.range === "7d" && typeof json.uniqueUsers === "number") ok("stats range 7d", "users=" + json.uniqueUsers);
+    else fail("stats range 7d", "status " + status + " range=" + json?.range);
+  }
+  {
+    const { status } = await req("/api/admin/export");
+    if (status === 401) ok("export requires auth");
+    else fail("export requires auth", "status " + status);
+  }
+  {
+    const { status, json } = await req("/api/admin/export", {
+      headers: { Authorization: "Basic " + Buffer.from("admin:trips-admin").toString("base64") },
+    });
+    if (status === 200 && Array.isArray(json?.devices) && Array.isArray(json?.events) && json.lifetime)
+      ok("export dump", "devices=" + json.devices.length + " events=" + json.events.length);
+    else fail("export dump", "status " + status);
+  }
+  {
+    const { status } = await req("/api/admin/errors", { method: "DELETE" });
+    if (status === 401) ok("clear errors requires auth");
+    else fail("clear errors requires auth", "status " + status);
   }
 
   // Client logic
@@ -280,7 +313,7 @@ try {
   // IDs in HTML exist in JS
   {
     const html = (await req("/")).text;
-    const js = (await req("/app.js?v=32")).text;
+    const js = (await req("/app.js?v=33")).text;
     const ids = [...html.matchAll(/id="([^"]+)"/g)].map(m => m[1]);
     const missing = ids.filter(id => !js.includes('"' + id + '"') && !js.includes("'" + id + "'") && !["mapToggleIcon","mapToggleLabel","navTitle","navSub","continueTitle","continueSub","installTitle","installSub","iosShareWord"].includes(id));
     // map/list structural ids that JS must touch

@@ -8,8 +8,8 @@ import { fileURLToPath } from "node:url";
 import { drivingRoute, geocode, optimizedTrip, reverse, suggest } from "./geo.ts";
 import { hasGoogleKey } from "./google.ts";
 import {
-  record, recordError, getStats, startPruneLoop, loadPersisted,
-  serverCounters, type EventKind,
+  record, recordError, getStats, startPruneLoop, loadPersisted, flushPersist,
+  clearErrors, exportPayload, serverCounters, type EventKind, type RangeKey,
 } from "./analytics.ts";
 
 const root = path.join(path.dirname(fileURLToPath(import.meta.url)), "..");
@@ -223,7 +223,27 @@ const server = http.createServer(async (req, res) => {
       if (!checkAdminAuth(req)) {
         return send(res, 401, { error: "Unauthorised" });
       }
-      return send(res, 200, getStats({ googlePlaces: hasGoogleKey() }));
+      const rawRange = (u.searchParams.get("range") || "24h").toLowerCase();
+      const range: RangeKey = rawRange === "7d" || rawRange === "30d" || rawRange === "all" ? rawRange : "24h";
+      return send(res, 200, getStats({ googlePlaces: hasGoogleKey() }, range));
+    }
+
+    if (u.pathname === "/api/admin/export" && req.method === "GET") {
+      if (!checkAdminAuth(req)) return send(res, 401, { error: "Unauthorised" });
+      const body = JSON.stringify(exportPayload(), null, 2);
+      res.writeHead(200, {
+        "Content-Type": "application/json; charset=utf-8",
+        "Content-Disposition": `attachment; filename="trips-ops-${new Date().toISOString().slice(0, 10)}.json"`,
+        "Cache-Control": "no-store",
+      });
+      res.end(body);
+      return;
+    }
+
+    if (u.pathname === "/api/admin/errors" && req.method === "DELETE") {
+      if (!checkAdminAuth(req)) return send(res, 401, { error: "Unauthorised" });
+      clearErrors();
+      return send(res, 200, { ok: true });
     }
 
     // Trip CRUD — trips live on-device (localStorage). Server returns empty stubs.
@@ -248,9 +268,16 @@ const server = http.createServer(async (req, res) => {
 });
 
 startPruneLoop();
-loadPersisted().catch(() => {});
 server.keepAliveTimeout = 65_000;
 server.headersTimeout = 70_000;
+
+function onExit() {
+  flushPersist().finally(() => process.exit(0));
+}
+process.on("SIGINT", onExit);
+process.on("SIGTERM", onExit);
+
+await loadPersisted();
 server.listen(PORT, "0.0.0.0", () => {
   console.log(`Trip planner listening on 0.0.0.0:${PORT}`);
   if (!hasGoogleKey()) {
@@ -265,5 +292,6 @@ server.listen(PORT, "0.0.0.0", () => {
       console.log(`  Also:                 http://${extra}:${PORT}`);
     }
     console.log(`  This PC:             http://127.0.0.1:${PORT}`);
+    console.log(`  Ops panel:           http://127.0.0.1:${PORT}/admin`);
   }
 });

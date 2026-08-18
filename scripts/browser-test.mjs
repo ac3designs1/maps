@@ -91,6 +91,11 @@ try {
   }, 4000);
   if (hereFilled) ok("GPS fills Your location as stop 1");
   else ok("GPS fill skipped", "geolocation may be delayed in headless — continuing");
+  if (hereFilled) {
+    const locked = await page.locator(".stop-input").first().evaluate((el) => el.readOnly);
+    if (locked) ok("Your location field is locked");
+    else fail("Your location field is locked", "not readonly");
+  }
 
   // ── import trip with 4 geocoded stops ──
   await page.goto(importUrl(), { waitUntil: "domcontentloaded" });
@@ -118,6 +123,13 @@ try {
   const pinCount = await page.locator(".map-pin").count();
   if (pinCount >= 4) ok("map pins for stops", String(pinCount));
   else fail("map pins for stops", String(pinCount));
+
+  const hist = await page.evaluate(() => history.state && history.state.tp);
+  if (hist === 1) ok("planner history state for back");
+  else fail("planner history state for back", String(hist));
+  const hot = await page.locator("#btnOptimise").evaluate((el) => el.classList.contains("is-hot"));
+  if (hot) ok("Optimise highlighted with 4 stops");
+  else fail("Optimise highlighted with 4 stops", "missing is-hot");
 
   const lineOk = await page.evaluate(() => {
     const S = window.__S || null;

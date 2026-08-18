@@ -1,6 +1,5 @@
 /* ═══════════════════════════════════════════════════
-   TRIPS  —  v21
-   Clean. Fast. No compromises.
+   TRIPS  —  v33
 ═══════════════════════════════════════════════════ */
 
 /* ── Tokens ──────────────────────────────────────── */
@@ -56,8 +55,8 @@
 *,*::before,*::after { box-sizing:border-box; -webkit-tap-highlight-color:transparent; }
 
 html,body {
-  margin:0; height:100%;
-  font-family: "Google Sans", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Arial, sans-serif;
+  margin:0; height:100%; height:100dvh;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
   font-size:16px; line-height:1.45;
   color:var(--t1); background:var(--bg);
   overflow:hidden; overscroll-behavior:none;
@@ -71,6 +70,7 @@ input,textarea { outline:none; border:none; -webkit-appearance:none; background:
 
 /* ── Map ─────────────────────────────────────────── */
 #map { position:fixed; inset:0; z-index:0; background:#E5E9EF; }
+@media (prefers-color-scheme:dark) { #map { background:#111213; } }
 .leaflet-control-attribution,.leaflet-control-zoom { display:none !important; }
 
 .map-pin {
@@ -96,6 +96,7 @@ input,textarea { outline:none; border:none; -webkit-appearance:none; background:
   background:var(--bg);
   display:flex; flex-direction:column;
   padding-top:var(--sat);
+  padding-bottom:var(--sab);
 }
 .screen-list.is-away {
   display:none;
@@ -185,7 +186,7 @@ input,textarea { outline:none; border:none; -webkit-appearance:none; background:
 
 /* ── Trip list ───────────────────────────────────── */
 .trip-list {
-  margin:0 16px; flex:1; min-height:0;
+  margin:0 16px calc(16px + var(--sab)); flex:1; min-height:0;
   overflow-y:auto; -webkit-overflow-scrolling:touch;
   background:var(--card); border-radius:18px;
   box-shadow:var(--s1); border:.5px solid var(--border);
@@ -321,7 +322,7 @@ input,textarea { outline:none; border:none; -webkit-appearance:none; background:
 }
 .sheet.snap-collapsed { height:76px; }
 .sheet.snap-mid       { height:52%; }
-.sheet.snap-full      { height:calc(100% - 62px - var(--sat)); }
+.sheet.snap-full      { height:calc(100dvh - 62px - var(--sat)); }
 .sheet.no-transition  { transition:none; }
 
 /* Handle */
@@ -434,7 +435,6 @@ input,textarea { outline:none; border:none; -webkit-appearance:none; background:
   box-shadow:0 2px 6px rgba(26,115,232,.4);
   position:relative; z-index:1;
   transition:background .2s, box-shadow .2s;
-  touch-action:none; cursor:grab;
 }
 .stop-row.is-origin .stop-dot { background:var(--green); box-shadow:0 2px 6px rgba(15,157,88,.4); }
 .stop-row.is-dest   .stop-dot { background:var(--red); border-radius:7px; box-shadow:0 2px 6px rgba(234,67,53,.4); }
@@ -476,18 +476,15 @@ input,textarea { outline:none; border:none; -webkit-appearance:none; background:
 .del-btn:active { color:var(--red); background:rgba(234,67,53,.07); }
 .stop-row.is-here .grip-btn,
 .stop-row.is-here .del-btn { visibility:hidden; pointer-events:none; }
+.stop-row.is-here .stop-input { font-weight:600; caret-color:transparent; }
 .stop-list.reordering { overflow:hidden; touch-action:none; }
-
-/* ── Action row ──────────────────────────────────── */
 
 /* ── Action row ──────────────────────────────────── */
 .action-row {
   display:flex; gap:7px;
-  padding:8px 12px 8px;
+  padding:8px 12px calc(8px + var(--sab));
   overflow-x:auto; flex-shrink:0;
   scrollbar-width:none;
-  -webkit-mask-image:linear-gradient(to right,transparent 0,black 12px,black calc(100% - 12px),transparent 100%);
-  mask-image:linear-gradient(to right,transparent 0,black 12px,black calc(100% - 12px),transparent 100%);
 }
 .action-row::-webkit-scrollbar { display:none; }
 .action-chip {
@@ -500,6 +497,10 @@ input,textarea { outline:none; border:none; -webkit-appearance:none; background:
 }
 .action-chip:active { transform:scale(.9); background:var(--card3); }
 .action-chip.loading { color:var(--blue); background:rgba(26,115,232,.1); border-color:rgba(26,115,232,.25); }
+.action-chip.is-hot {
+  color:var(--blue); background:rgba(26,115,232,.1);
+  border-color:rgba(26,115,232,.35);
+}
 
 /* ══════════════════════════════════════════════════
    MODAL
@@ -627,7 +628,8 @@ input,textarea { outline:none; border:none; -webkit-appearance:none; background:
   font-size:14px; font-weight:500;
   display:flex; align-items:center; gap:16px;
   max-width:min(88vw,380px); min-width:140px;
-  box-shadow:var(--s3); white-space:nowrap;
+  box-shadow:var(--s3); white-space:normal;
+  text-align:left; line-height:1.35;
   backdrop-filter:blur(24px); -webkit-backdrop-filter:blur(24px);
   animation:toastIn .2s cubic-bezier(.34,1.56,.64,1) both;
 }

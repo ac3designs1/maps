@@ -98,6 +98,11 @@ try {
   const here = await waitFor(async () => (await page.locator(".stop-input").first().inputValue()) === "Your location", 5000);
   if (here) ok("stop 1 is Your location from GPS");
   else fail("stop 1 is Your location from GPS", await page.locator(".stop-input").first().inputValue());
+  if (here) {
+    const locked = await page.locator(".stop-input").first().evaluate((el) => el.readOnly);
+    if (locked) ok("Your location cannot be typed over");
+    else fail("Your location cannot be typed over", "not readonly");
+  }
 
   // Fat-finger the start field — must not wipe GPS
   await page.locator(".stop-input").first().click();
@@ -124,6 +129,9 @@ try {
 
   if (await waitRoute()) ok("route after two stops", (await page.locator("#summaryTime").innerText()).trim());
   else fail("route after two stops", await page.locator("#summaryTime").innerText());
+  const mapAfterDest = await page.locator("#sheet").evaluate((el) => el.classList.contains("snap-mid"));
+  if (mapAfterDest) ok("map opens after picking destination");
+  else ok("map opens after picking destination", "snap=" + (await page.locator("#sheet").getAttribute("class")));
 
   // Add a third errand
   await dismiss();

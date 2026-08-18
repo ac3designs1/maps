@@ -2,134 +2,200 @@
 <html lang="en">
 <head>
   <meta charset="utf-8"/>
-  <meta name="viewport" content="width=device-width,initial-scale=1"/>
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,maximum-scale=1,user-scalable=no"/>
   <meta name="robots" content="noindex"/>
+  <meta name="apple-mobile-web-app-capable" content="yes"/>
+  <meta name="mobile-web-app-capable" content="yes"/>
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent"/>
+  <meta name="apple-mobile-web-app-title" content="Ops"/>
+  <meta name="theme-color" content="#ffffff" media="(prefers-color-scheme:light)"/>
+  <meta name="theme-color" content="#111113" media="(prefers-color-scheme:dark)"/>
+  <meta name="color-scheme" content="light dark"/>
   <title>Trips · Ops</title>
   <style>
     :root {
-      --bg: #09090b;
-      --panel: #111113;
-      --panel2: #18181b;
-      --line: rgba(255,255,255,.08);
-      --line2: rgba(255,255,255,.05);
-      --t1: #fafafa;
-      --t2: #a1a1aa;
-      --t3: #52525b;
-      --blue: #3b82f6;
-      --green: #22c55e;
-      --red: #ef4444;
-      --amber: #f59e0b;
-      --violet: #a78bfa;
+      --blue:#1A73E8; --green:#0F9D58; --red:#EA4335; --amber:#FBBC04; --violet:#7B61FF;
+      --bg:#F1F3F4; --card:#fff; --card2:#F1F3F4; --card3:#E8EAED;
+      --border:rgba(0,0,0,.09); --border2:rgba(0,0,0,.05);
+      --t1:#202124; --t2:#5F6368; --t3:#9AA0A6;
+      --s1:0 1px 3px rgba(60,64,67,.18),0 2px 8px rgba(60,64,67,.10);
+      --sat:env(safe-area-inset-top,0px); --sab:env(safe-area-inset-bottom,0px);
+      color-scheme:light dark;
     }
-    * { box-sizing: border-box; margin: 0; padding: 0; }
-    html, body { min-height: 100%; background: var(--bg); color: var(--t1);
-      font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Inter, Roboto, sans-serif;
-      font-size: 14px; -webkit-font-smoothing: antialiased; }
-    button, input { font: inherit; color: inherit; }
-    button { cursor: pointer; border: none; background: none; }
+    @media (prefers-color-scheme:dark) {
+      :root {
+        --bg:#111213; --card:#1E2022; --card2:#28292C; --card3:#323437;
+        --border:rgba(255,255,255,.10); --border2:rgba(255,255,255,.05);
+        --t1:#E8EAED; --t2:#9AA0A6; --t3:#5F6368;
+        --s1:0 1px 3px rgba(0,0,0,.5),0 2px 8px rgba(0,0,0,.35);
+      }
+    }
+    *,*::before,*::after { box-sizing:border-box; -webkit-tap-highlight-color:transparent; }
+    html,body {
+      margin:0; min-height:100%; min-height:100dvh;
+      font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+      font-size:16px; line-height:1.45; color:var(--t1); background:var(--bg);
+      -webkit-font-smoothing:antialiased;
+    }
+    button,input { font:inherit; color:inherit; margin:0; }
+    button { cursor:pointer; border:none; background:none; -webkit-appearance:none; }
+    input { outline:none; border:none; -webkit-appearance:none; background:transparent; }
+    .hidden { display:none !important; }
 
-    #gate { min-height: 100vh; display: grid; place-items: center; padding: 24px; }
-    .gate-card { width: 100%; max-width: 380px; background: var(--panel); border: 1px solid var(--line);
-      border-radius: 16px; padding: 28px; }
-    .gate-card h1 { font-size: 20px; font-weight: 650; letter-spacing: -.03em; }
-    .gate-card p { color: var(--t2); margin: 8px 0 22px; }
-    .gate-card input { width: 100%; background: var(--panel2); border: 1px solid var(--line);
-      border-radius: 10px; padding: 12px 14px; outline: none; }
-    .gate-card input:focus { border-color: var(--blue); }
-    .gate-card button { width: 100%; margin-top: 12px; background: #fff; color: #09090b;
-      border-radius: 10px; padding: 12px; font-weight: 650; }
-    .gate-card button:active { transform: scale(.98); }
-    #gateErr { display: none; color: var(--red); font-size: 13px; margin-top: 10px; }
+    #gate {
+      min-height:100dvh; display:grid; place-items:center;
+      padding:calc(24px + var(--sat)) 20px calc(24px + var(--sab));
+    }
+    .gate-card {
+      width:100%; max-width:380px; background:var(--card); border-radius:22px;
+      box-shadow:var(--s1); border:.5px solid var(--border); padding:28px 22px 22px; text-align:center;
+    }
+    .gate-ico {
+      width:56px; height:56px; border-radius:16px; margin:0 auto 16px;
+      background:rgba(26,115,232,.12); color:var(--blue);
+      display:grid; place-items:center;
+    }
+    .gate-card h1 { margin:0; font-size:28px; font-weight:800; letter-spacing:-.04em; }
+    .gate-card p { color:var(--t2); margin:8px 0 22px; font-size:15px; }
+    .gate-card input {
+      width:100%; background:var(--card2); border-radius:14px; padding:14px 16px;
+      font-size:16px; text-align:left; border:1.5px solid transparent;
+    }
+    .gate-card input:focus { border-color:var(--blue); }
+    .gate-card button[type=submit] {
+      width:100%; margin-top:12px; background:var(--blue); color:#fff;
+      border-radius:24px; padding:14px; font-weight:700; font-size:16px;
+      box-shadow:0 4px 14px rgba(26,115,232,.35);
+    }
+    .gate-card button[type=submit]:active { transform:scale(.97); }
+    #gateErr { display:none; color:var(--red); font-size:14px; margin-top:12px; font-weight:600; }
 
-    #app { display: none; }
+    #app { display:none; padding-bottom:calc(28px + var(--sab)); }
     .top {
-      position: sticky; top: 0; z-index: 10;
-      display: flex; align-items: center; justify-content: space-between; gap: 16px;
-      padding: 14px 28px; border-bottom: 1px solid var(--line); background: rgba(9,9,11,.85);
-      backdrop-filter: blur(16px);
+      position:sticky; top:0; z-index:10;
+      padding:calc(10px + var(--sat)) 20px 12px;
+      background:color-mix(in srgb, var(--bg) 86%, transparent);
+      backdrop-filter:blur(20px); -webkit-backdrop-filter:blur(20px);
+      display:flex; align-items:flex-end; justify-content:space-between; gap:12px;
     }
-    .brand { display: flex; align-items: center; gap: 10px; font-weight: 650; letter-spacing: -.02em; }
-    .brand-mark { width: 28px; height: 28px; border-radius: 8px; background: var(--blue);
-      display: grid; place-items: center; }
-    .brand-mark svg { width: 16px; height: 16px; }
-    .top-right { display: flex; align-items: center; gap: 14px; color: var(--t2); font-size: 12px; }
-    .live { display: flex; align-items: center; gap: 6px; color: var(--green); font-weight: 600; }
-    .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--green);
-      box-shadow: 0 0 0 4px rgba(34,197,94,.15); animation: pulse 2s ease infinite; }
-    @keyframes pulse { 50% { opacity: .45; } }
-    .ghost { border: 1px solid var(--line); color: var(--t2); border-radius: 8px; padding: 6px 10px; font-size: 12px; }
-    .ghost:hover { background: var(--panel2); color: var(--t1); }
+    .eyebrow { margin:0; font-size:11px; font-weight:700; letter-spacing:.12em; text-transform:uppercase; color:var(--blue); }
+    .top h1 { margin:4px 0 0; font-size:32px; font-weight:800; letter-spacing:-.04em; line-height:1; }
+    .live { display:flex; align-items:center; gap:6px; color:var(--green); font-size:13px; font-weight:700; padding-bottom:4px; }
+    .dot { width:8px; height:8px; border-radius:50%; background:var(--green); box-shadow:0 0 0 4px rgba(15,157,88,.18); animation:pulse 2s ease infinite; }
+    .live.pause { color:var(--t3); }
+    .live.pause .dot { background:var(--t3); box-shadow:none; animation:none; }
+    @keyframes pulse { 50% { opacity:.4; } }
 
-    .wrap { max-width: 1280px; margin: 0 auto; padding: 24px 28px 48px; }
-    .kpis { display: grid; grid-template-columns: repeat(6, 1fr); gap: 12px; margin-bottom: 16px; }
-    @media (max-width: 1100px) { .kpis { grid-template-columns: repeat(3, 1fr); } }
-    @media (max-width: 640px) { .kpis { grid-template-columns: repeat(2, 1fr); } .wrap, .top { padding-left: 16px; padding-right: 16px; } }
-    .kpi { background: var(--panel); border: 1px solid var(--line); border-radius: 14px; padding: 16px 18px; }
-    .kpi .l { font-size: 11px; font-weight: 650; color: var(--t2); text-transform: uppercase; letter-spacing: .08em; }
-    .kpi .v { font-size: 28px; font-weight: 700; letter-spacing: -.04em; margin-top: 6px; }
-    .kpi .s { font-size: 12px; color: var(--t3); margin-top: 4px; }
-    .v.g { color: var(--green); } .v.b { color: var(--blue); } .v.a { color: var(--amber); }
+    .wrap { max-width:720px; margin:0 auto; padding:0 16px; }
+    .seg {
+      display:flex; background:var(--card2); border-radius:12px; padding:3px; margin:4px 0 14px;
+    }
+    .seg button {
+      flex:1; border-radius:10px; padding:8px 0; font-size:13px; font-weight:700; color:var(--t2);
+    }
+    .seg button.on { background:var(--card); color:var(--t1); box-shadow:var(--s1); }
 
-    .grid { display: grid; grid-template-columns: 1.6fr .9fr; gap: 12px; }
-    @media (max-width: 960px) { .grid { grid-template-columns: 1fr; } }
-    .card { background: var(--panel); border: 1px solid var(--line); border-radius: 14px; padding: 18px 20px; }
-    .card h2 { font-size: 13px; font-weight: 650; color: var(--t2); text-transform: uppercase; letter-spacing: .06em; margin-bottom: 14px; }
-    .row2 { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-top: 12px; }
-    @media (max-width: 960px) { .row2 { grid-template-columns: 1fr; } }
+    .kpis { display:grid; grid-template-columns:1fr 1fr; gap:10px; margin-bottom:12px; }
+    .kpi {
+      background:var(--card); border-radius:18px; padding:14px 16px;
+      box-shadow:var(--s1); border:.5px solid var(--border);
+    }
+    .kpi .l { font-size:11px; font-weight:700; color:var(--t2); text-transform:uppercase; letter-spacing:.07em; }
+    .kpi .v { font-size:28px; font-weight:800; letter-spacing:-.04em; margin-top:4px; line-height:1.1; }
+    .kpi .s { font-size:12px; color:var(--t3); margin-top:4px; }
+    .v.g { color:var(--green); } .v.b { color:var(--blue); } .v.a { color:#B8860B; } .v.r { color:var(--red); }
 
-    .chart { width: 100%; height: 180px; display: block; }
-    .legend { display: flex; gap: 16px; margin-top: 10px; font-size: 12px; color: var(--t2); }
-    .sw { display: inline-block; width: 8px; height: 8px; border-radius: 2px; margin-right: 6px; }
+    .card {
+      background:var(--card); border-radius:18px; padding:16px 16px 14px;
+      box-shadow:var(--s1); border:.5px solid var(--border); margin-bottom:12px;
+    }
+    .card h2 { margin:0 0 12px; font-size:13px; font-weight:700; color:var(--t2); text-transform:uppercase; letter-spacing:.06em; }
+    .card .sub { float:right; font-size:12px; color:var(--t3); font-weight:600; text-transform:none; letter-spacing:0; }
 
-    .funnel { display: flex; flex-direction: column; gap: 10px; }
-    .fn { display: grid; grid-template-columns: 88px 1fr 40px; gap: 10px; align-items: center; }
-    .fn .n { font-size: 12px; color: var(--t2); }
-    .fn .bar { height: 8px; background: var(--panel2); border-radius: 99px; overflow: hidden; }
-    .fn .fill { height: 100%; border-radius: 99px; background: var(--blue); }
-    .fn .c { font-variant-numeric: tabular-nums; font-weight: 650; text-align: right; }
+    .bars { display:flex; align-items:flex-end; gap:3px; height:112px; }
+    .col { flex:1; display:flex; flex-direction:column; align-items:center; height:100%; justify-content:flex-end; gap:4px; }
+    .col i { display:block; width:100%; max-width:18px; border-radius:4px 4px 2px 2px; background:var(--blue); min-height:3px; }
+    .col b { font-size:9px; color:var(--t3); font-weight:600; }
 
-    .days { display: grid; grid-template-columns: repeat(7, 1fr); gap: 8px; }
-    .day { background: var(--panel2); border-radius: 10px; padding: 10px 8px; text-align: center; }
-    .day .d { font-size: 11px; color: var(--t3); }
-    .day .n { font-size: 18px; font-weight: 700; margin: 4px 0 2px; }
-    .day .m { font-size: 11px; color: var(--t2); }
+    .fn { display:grid; grid-template-columns:92px 1fr 42px; gap:10px; align-items:center; margin:8px 0; }
+    .fn .n { font-size:13px; color:var(--t2); font-weight:600; }
+    .fn .bar { height:8px; background:var(--card2); border-radius:99px; overflow:hidden; }
+    .fn .fill { height:100%; border-radius:99px; }
+    .fn .c { font-variant-numeric:tabular-nums; font-weight:700; text-align:right; font-size:13px; }
 
-    .health { display: grid; grid-template-columns: repeat(2, 1fr); gap: 8px; }
-    .hitem { background: var(--panel2); border-radius: 10px; padding: 10px 12px; }
-    .hitem .l { font-size: 11px; color: var(--t3); text-transform: uppercase; letter-spacing: .06em; }
-    .hitem .v { font-size: 15px; font-weight: 650; margin-top: 2px; }
-    .ok { color: var(--green); } .bad { color: var(--red); }
+    .days { display:grid; grid-template-columns:repeat(7,1fr); gap:6px; }
+    .day { background:var(--card2); border-radius:12px; padding:8px 4px; text-align:center; }
+    .day .d { font-size:10px; color:var(--t3); font-weight:700; }
+    .day .n { font-size:16px; font-weight:800; margin:3px 0 1px; }
+    .day .m { font-size:10px; color:var(--t2); }
 
-    .feed { max-height: 320px; overflow: auto; display: flex; flex-direction: column; gap: 2px; }
-    .feed::-webkit-scrollbar { width: 8px; } .feed::-webkit-scrollbar-thumb { background: var(--line); border-radius: 8px; }
-    .ev { display: grid; grid-template-columns: 72px 88px 1fr; gap: 8px; padding: 8px 6px; border-bottom: 1px solid var(--line2); font-size: 12px; }
-    .ev .t { color: var(--t3); font-variant-numeric: tabular-nums; }
-    .pill { display: inline-block; border-radius: 6px; padding: 1px 7px; font-weight: 650; font-size: 11px; }
-    .k-session { background: rgba(59,130,246,.15); color: #93c5fd; }
-    .k-route { background: rgba(34,197,94,.15); color: #86efac; }
-    .k-optimise { background: rgba(245,158,11,.15); color: #fcd34d; }
-    .k-navigate { background: rgba(167,139,250,.15); color: #c4b5fd; }
-    .k-share, .k-paste { background: rgba(255,255,255,.08); color: var(--t2); }
-    .k-error { background: rgba(239,68,68,.15); color: #fca5a5; }
-    .det { color: var(--t2); }
+    .health { display:grid; grid-template-columns:1fr 1fr; gap:8px; }
+    .hitem { background:var(--card2); border-radius:12px; padding:10px 12px; }
+    .hitem .l { font-size:10px; color:var(--t3); text-transform:uppercase; letter-spacing:.06em; font-weight:700; }
+    .hitem .v { font-size:14px; font-weight:700; margin-top:2px; word-break:break-word; }
+    .ok { color:var(--green); } .bad { color:var(--red); }
 
-    .errs { max-height: 240px; overflow: auto; }
-    .er { display: flex; gap: 10px; padding: 10px 0; border-bottom: 1px solid var(--line2); font-size: 13px; }
-    .er .src { font-size: 10px; font-weight: 700; text-transform: uppercase; padding: 2px 6px; border-radius: 4px; height: fit-content; }
-    .src.server { background: rgba(239,68,68,.15); color: var(--red); }
-    .src.client { background: rgba(245,158,11,.15); color: var(--amber); }
-    .er .msg { flex: 1; word-break: break-word; }
-    .er .when { color: var(--t3); font-size: 12px; white-space: nowrap; }
-    .empty { color: var(--t2); padding: 12px 0; }
+    .feed, .users, .errs { max-height:340px; overflow:auto; -webkit-overflow-scrolling:touch; }
+    .ev, .ur, .er {
+      display:flex; gap:10px; align-items:center;
+      padding:10px 0; border-bottom:.5px solid var(--border2); font-size:13px;
+    }
+    .ev:last-child, .ur:last-child, .er:last-child { border-bottom:none; }
+    .t { color:var(--t3); font-variant-numeric:tabular-nums; font-size:12px; width:58px; flex-shrink:0; }
+    .pill { border-radius:7px; padding:2px 7px; font-weight:700; font-size:11px; flex-shrink:0; }
+    .k-session { background:rgba(26,115,232,.12); color:var(--blue); }
+    .k-route { background:rgba(15,157,88,.12); color:var(--green); }
+    .k-optimise { background:rgba(251,188,4,.18); color:#B8860B; }
+    .k-navigate { background:rgba(123,97,255,.14); color:var(--violet); }
+    .k-share,.k-paste,.k-reverse { background:var(--card2); color:var(--t2); }
+    .k-new_trip,.k-open_trip { background:rgba(26,115,232,.1); color:var(--blue); }
+    .k-delete,.k-error { background:rgba(234,67,53,.12); color:var(--red); }
+    .det { color:var(--t2); min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+    .uid { color:var(--t3); font-variant-numeric:tabular-nums; font-size:11px; margin-left:auto; flex-shrink:0; }
 
-    .foot { color: var(--t3); font-size: 12px; text-align: center; margin-top: 22px; }
+    .ur .who { flex:1; min-width:0; }
+    .ur strong { display:block; font-size:14px; }
+    .ur span { display:block; color:var(--t3); font-size:12px; }
+    .badge { font-size:10px; font-weight:700; padding:2px 6px; border-radius:6px; background:rgba(15,157,88,.12); color:var(--green); }
+    .badge.new { background:rgba(26,115,232,.12); color:var(--blue); }
+
+    .src { font-size:10px; font-weight:800; text-transform:uppercase; padding:2px 6px; border-radius:6px; }
+    .src.server { background:rgba(234,67,53,.12); color:var(--red); }
+    .src.client { background:rgba(251,188,4,.18); color:#B8860B; }
+    .er .msg { flex:1; min-width:0; word-break:break-word; }
+    .empty { color:var(--t2); padding:8px 0 4px; font-size:14px; }
+
+    .row-btn {
+      display:flex; align-items:center; justify-content:space-between; gap:12px;
+      width:100%; padding:14px 0; border-bottom:.5px solid var(--border2); text-align:left; font-weight:600;
+    }
+    .row-btn:last-child { border-bottom:none; }
+    .row-btn span { color:var(--t3); font-weight:500; font-size:14px; }
+    .toggle {
+      width:48px; height:30px; border-radius:15px; background:var(--card3); position:relative; flex-shrink:0;
+    }
+    .toggle.on { background:var(--green); }
+    .toggle i { position:absolute; top:3px; left:3px; width:24px; height:24px; border-radius:12px; background:#fff; box-shadow:var(--s1); transition:left .18s; }
+    .toggle.on i { left:21px; }
+
+    .chip-btn {
+      background:var(--card2); border-radius:18px; padding:9px 14px; font-size:13px; font-weight:700;
+      border:.5px solid var(--border);
+    }
+    .chip-btn:active { transform:scale(.96); }
+    .actions { display:flex; flex-wrap:wrap; gap:8px; margin-top:4px; }
+    .danger { color:var(--red); }
+    .stamp { text-align:center; color:var(--t3); font-size:12px; margin:8px 0 0; }
   </style>
 </head>
 <body>
   <div id="gate">
     <form class="gate-card" onsubmit="return login(event)">
-      <h1>Trips ops</h1>
-      <p>Password-protected live dashboard. Sessions, routes, errors, health.</p>
+      <div class="gate-ico">
+        <svg viewBox="0 0 24 24" width="26" height="26" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 21s7-7.2 7-12a7 7 0 1 0-14 0c0 4.8 7 12 7 12z"/><circle cx="12" cy="9" r="2.2"/></svg>
+      </div>
+      <h1>Ops</h1>
+      <p>Live traffic, unique users, routes, and errors — saved across restarts.</p>
       <input id="pass" type="password" placeholder="Admin password" autocomplete="current-password" autofocus/>
       <button type="submit">Open dashboard</button>
       <div id="gateErr">Wrong password</div>
@@ -138,63 +204,85 @@
 
   <div id="app">
     <header class="top">
-      <div class="brand">
-        <span class="brand-mark"><svg viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.2"><path d="M12 21s7-7.2 7-12a7 7 0 1 0-14 0c0 4.8 7 12 7 12z"/><circle cx="12" cy="9" r="2.2" fill="#fff"/></svg></span>
-        Trips
+      <div>
+        <p class="eyebrow">Maps</p>
+        <h1>Ops</h1>
       </div>
-      <div class="top-right">
-        <span class="live"><span class="dot"></span> Live</span>
-        <span id="stamp">—</span>
-        <button class="ghost" id="out">Sign out</button>
-      </div>
+      <div class="live" id="livePill"><span class="dot"></span> Live</div>
     </header>
     <div class="wrap">
+      <div class="seg" id="seg">
+        <button data-range="24h" class="on">24h</button>
+        <button data-range="7d">7d</button>
+        <button data-range="30d">30d</button>
+        <button data-range="all">All</button>
+      </div>
+
       <div class="kpis">
-        <div class="kpi"><div class="l">Active now</div><div class="v g" id="kActive">—</div><div class="s">Last 5 minutes</div></div>
-        <div class="kpi"><div class="l">Peak</div><div class="v" id="kPeak">—</div><div class="s">Concurrent sessions</div></div>
-        <div class="kpi"><div class="l">Sessions 24h</div><div class="v b" id="kSess">—</div><div class="s" id="kDev">— devices</div></div>
-        <div class="kpi"><div class="l">Routes 24h</div><div class="v a" id="kRoutes">—</div><div class="s" id="kAvg">—</div></div>
-        <div class="kpi"><div class="l">Started nav</div><div class="v" id="kNav">—</div><div class="s" id="kNavRate">— conversion</div></div>
-        <div class="kpi"><div class="l">Errors 24h</div><div class="v" id="kErr">—</div><div class="s" id="kUptime">uptime —</div></div>
+        <div class="kpi"><div class="l">Unique users</div><div class="v b" id="kUsers">—</div><div class="s" id="kUsersSub">all-time —</div></div>
+        <div class="kpi"><div class="l">Active now</div><div class="v g" id="kActive">—</div><div class="s" id="kPeak">peak —</div></div>
+        <div class="kpi"><div class="l">Sessions</div><div class="v" id="kSess">—</div><div class="s" id="kDev">—</div></div>
+        <div class="kpi"><div class="l">Routes</div><div class="v a" id="kRoutes">—</div><div class="s" id="kAvg">—</div></div>
+        <div class="kpi"><div class="l">Started nav</div><div class="v" id="kNav">—</div><div class="s" id="kNavRate">—</div></div>
+        <div class="kpi"><div class="l">Errors</div><div class="v" id="kErr">—</div><div class="s" id="kUptime">uptime —</div></div>
       </div>
 
-      <div class="grid">
-        <div class="card">
-          <h2>Last 24 hours</h2>
-          <svg class="chart" id="chart" viewBox="0 0 720 180" preserveAspectRatio="none"></svg>
-          <div class="legend">
-            <span><i class="sw" style="background:#3b82f6"></i>Sessions</span>
-            <span><i class="sw" style="background:#22c55e"></i>Routes</span>
-          </div>
-        </div>
-        <div class="card">
-          <h2>Funnel · 24h</h2>
-          <div class="funnel" id="funnel"></div>
+      <div class="card">
+        <h2>People <span class="sub" id="peopleSub"></span></h2>
+        <div class="health" id="people"></div>
+      </div>
+
+      <div class="card">
+        <h2 id="chartTitle">Last 24 hours</h2>
+        <div class="bars" id="bars"></div>
+      </div>
+
+      <div class="card">
+        <h2>Funnel</h2>
+        <div id="funnel"></div>
+      </div>
+
+      <div class="card">
+        <h2>Last 7 days</h2>
+        <div class="days" id="days"></div>
+      </div>
+
+      <div class="card">
+        <h2>Platforms &amp; trip size</h2>
+        <div id="platforms"></div>
+        <div id="stops" style="margin-top:8px"></div>
+      </div>
+
+      <div class="card">
+        <h2>Unique users <span class="sub" id="userCount"></span></h2>
+        <div class="users" id="users"></div>
+      </div>
+
+      <div class="card">
+        <h2>Live activity</h2>
+        <div class="feed" id="feed"></div>
+      </div>
+
+      <div class="card">
+        <h2>Errors <span class="sub" id="errSub"></span></h2>
+        <div class="errs" id="errs"></div>
+        <div class="actions" style="margin-top:10px">
+          <button class="chip-btn danger" id="btnClearErr">Clear errors</button>
         </div>
       </div>
 
-      <div class="row2">
-        <div class="card">
-          <h2>Last 7 days</h2>
-          <div class="days" id="days"></div>
-        </div>
-        <div class="card">
-          <h2>Health</h2>
-          <div class="health" id="health"></div>
-        </div>
+      <div class="card">
+        <h2>Server health</h2>
+        <div class="health" id="health"></div>
       </div>
 
-      <div class="row2">
-        <div class="card">
-          <h2>Live activity</h2>
-          <div class="feed" id="feed"></div>
-        </div>
-        <div class="card">
-          <h2>Errors</h2>
-          <div class="errs" id="errs"></div>
-        </div>
+      <div class="card">
+        <h2>Options</h2>
+        <button class="row-btn" id="btnLive" type="button">Auto-refresh <span id="liveLabel">On · 5s</span></button>
+        <button class="row-btn" id="btnExport" type="button">Export JSON backup <span>Download</span></button>
+        <button class="row-btn" id="out" type="button">Sign out <span></span></button>
       </div>
-      <div class="foot" id="foot"></div>
+      <p class="stamp" id="foot"></p>
     </div>
   </div>
 
@@ -203,10 +291,55 @@
   let pass = sessionStorage.getItem("trips_admin") || "";
   let timer = 0;
   let loginGen = 0;
+  let range = sessionStorage.getItem("trips_ops_range") || "24h";
+  let live = sessionStorage.getItem("trips_ops_live") !== "0";
+  let last = null;
 
   $("out").onclick = () => {
     pass = ""; sessionStorage.removeItem("trips_admin");
     clearInterval(timer); $("app").style.display = "none"; $("gate").style.display = "grid";
+  };
+
+  $("seg").onclick = (e) => {
+    const b = e.target.closest("[data-range]");
+    if (!b) return;
+    range = b.dataset.range;
+    sessionStorage.setItem("trips_ops_range", range);
+    [...$("seg").children].forEach((x) => x.classList.toggle("on", x === b));
+    if (pass) refresh(pass);
+  };
+  [...$("seg").children].forEach((x) => x.classList.toggle("on", x.dataset.range === range));
+
+  function setLiveUi() {
+    $("livePill").classList.toggle("pause", !live);
+    $("livePill").innerHTML = live ? `<span class="dot"></span> Live` : `<span class="dot"></span> Paused`;
+    $("liveLabel").textContent = live ? "On · 5s" : "Off";
+  }
+  $("btnLive").onclick = () => {
+    live = !live;
+    sessionStorage.setItem("trips_ops_live", live ? "1" : "0");
+    setLiveUi();
+    clearInterval(timer);
+    if (live && pass) timer = setInterval(() => refresh(pass), 5000);
+  };
+  setLiveUi();
+
+  $("btnExport").onclick = async () => {
+    if (!pass) return;
+    const res = await fetch("/api/admin/export", { headers: { Authorization: "Basic " + btoa("admin:" + pass) } });
+    if (!res.ok) return;
+    const blob = await res.blob();
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(blob);
+    a.download = "trips-ops.json";
+    a.click();
+    setTimeout(() => URL.revokeObjectURL(a.href), 2000);
+  };
+
+  $("btnClearErr").onclick = async () => {
+    if (!pass || !confirm("Clear stored errors?")) return;
+    await fetch("/api/admin/errors", { method: "DELETE", headers: { Authorization: "Basic " + btoa("admin:" + pass) } });
+    refresh(pass);
   };
 
   function login(e) {
@@ -221,98 +354,149 @@
       sessionStorage.setItem("trips_admin", pass);
       $("gate").style.display = "none";
       $("app").style.display = "block";
-      timer = setInterval(() => refresh(pass), 8000);
+      clearInterval(timer);
+      if (live) timer = setInterval(() => refresh(pass), 5000);
     });
     return false;
   }
 
   async function refresh(usePass = pass) {
     try {
-      const res = await fetch("/api/stats", { headers: { Authorization: "Basic " + btoa("admin:" + usePass) } });
+      const res = await fetch("/api/stats?range=" + encodeURIComponent(range), {
+        headers: { Authorization: "Basic " + btoa("admin:" + usePass) },
+      });
       if (res.status === 401) return false;
       if (!res.ok) return false;
-      paint(await res.json());
+      last = await res.json();
+      paint(last);
       return true;
     } catch { return false; }
   }
 
   function esc(s) { return String(s ?? "").replace(/&/g,"&amp;").replace(/</g,"&lt;"); }
-
-  function path(points, w, h, pad) {
-    if (!points.length) return "";
-    const max = Math.max(1, ...points);
-    return points.map((v, i) => {
-      const x = pad + (i / Math.max(1, points.length - 1)) * (w - pad * 2);
-      const y = h - pad - (v / max) * (h - pad * 2);
-      return `${i ? "L" : "M"}${x.toFixed(1)},${y.toFixed(1)}`;
-    }).join(" ");
-  }
+  function n(v) { return Number(v || 0).toLocaleString("en-AU"); }
 
   function paint(d) {
-    $("kActive").textContent = d.activeSessions ?? 0;
-    $("kPeak").textContent = d.peakActive ?? 0;
-    $("kSess").textContent = d.uniqueSessions24h ?? 0;
-    $("kDev").textContent = `${d.uniqueDevices24h ?? 0} devices`;
-    $("kRoutes").textContent = d.byKind?.route ?? d.server?.routes ?? 0;
+    $("kActive").textContent = n(d.activeSessions);
+    $("kPeak").textContent = `peak ${n(d.peakActive)} concurrent`;
+    $("kUsers").textContent = n(d.uniqueUsers);
+    $("kUsersSub").textContent = `${n(d.uniqueUsersAllTime)} all-time · ${n(d.newUsers)} new`;
+    $("kSess").textContent = n(d.uniqueSessions);
+    $("kDev").textContent = `${n(d.uniqueUsers)} people this range`;
+    $("kRoutes").textContent = n(d.byKind?.route ?? 0);
     $("kAvg").textContent = d.avgStops ? `${d.avgStops} avg stops · ${d.avgKm} km` : "No routes yet";
-    $("kNav").textContent = d.byKind?.navigate ?? 0;
-    $("kNavRate").textContent = `${d.funnel?.navRate ?? 0}% of sessions`;
-    $("kErr").textContent = (d.byKind?.error ?? 0) || d.recentErrors?.length || 0;
-    if (Number($("kErr").textContent) > 0) $("kErr").classList.add("a"); else $("kErr").classList.remove("a");
+    $("kNav").textContent = n(d.byKind?.navigate ?? 0);
+    $("kNavRate").textContent = `${d.funnel?.navRate ?? 0}% of sessions start nav`;
+    const errN = d.errorsInRange ?? d.errors24h ?? 0;
+    $("kErr").textContent = n(errN);
+    $("kErr").classList.toggle("r", errN > 0);
     $("kUptime").textContent = `uptime ${d.health?.uptime || "—"}`;
-    $("stamp").textContent = d.generatedAt || "";
+
+    $("people").innerHTML = [
+      ["All-time users", n(d.uniqueUsersAllTime)],
+      ["This range", n(d.uniqueUsers)],
+      ["New", n(d.newUsers)],
+      ["Returning", n(d.returningUsers)],
+      ["PWA installs", n(d.pwaUsers)],
+      ["Lifetime routes", n(d.lifetime?.routes)],
+    ].map(([l,v]) => `<div class="hitem"><div class="l">${l}</div><div class="v">${v}</div></div>`).join("");
+    $("peopleSub").textContent = d.range || "24h";
 
     const hours = d.hourly || [];
-    const sess = hours.map(h => h.sessions);
-    const routes = hours.map(h => h.routes);
-    const p1 = path(sess, 720, 180, 8);
-    const p2 = path(routes, 720, 180, 8);
-    $("chart").innerHTML = `
-      <path d="${p1}" fill="none" stroke="#3b82f6" stroke-width="2.5" stroke-linejoin="round"/>
-      <path d="${p2}" fill="none" stroke="#22c55e" stroke-width="2.5" stroke-linejoin="round"/>`;
+    const useHours = range === "24h";
+    const series = useHours ? hours : (range === "30d" || range === "all" ? (d.daily30 || d.daily) : d.daily);
+    $("chartTitle").textContent = useHours ? "Last 24 hours" : range === "7d" ? "Last 7 days" : "Daily users";
+    const vals = series.map((x) => useHours ? x.users ?? x.sessions : x.devices ?? x.sessions);
+    const max = Math.max(1, ...vals);
+    $("bars").innerHTML = series.map((x, i) => {
+      const v = vals[i];
+      const h = Math.max(6, Math.round((v / max) * 96));
+      const label = useHours ? (i % 4 === 0 ? String(x.hour || "").slice(0, 2) : "") : String(x.day || "").split(" ")[0];
+      return `<div class="col"><i style="height:${h}px;opacity:${.35 + .65 * (v / max)}"></i><b>${esc(label)}</b></div>`;
+    }).join("");
 
     const f = d.funnel || {};
-    const max = Math.max(1, f.sessions, f.routes, f.optimise, f.navigate, f.share, f.paste);
+    const fmax = Math.max(1, f.sessions, f.routes, f.optimise, f.navigate, f.share, f.paste, f.new_trip, f.open_trip);
     const rows = [
-      ["Sessions", f.sessions, "#3b82f6"],
-      ["Routes", f.routes, "#22c55e"],
-      ["Optimise", f.optimise, "#f59e0b"],
-      ["Navigate", f.navigate, "#a78bfa"],
-      ["Share", f.share, "#93c5fd"],
-      ["Paste", f.paste, "#a1a1aa"],
+      ["Sessions", f.sessions, "var(--blue)"],
+      ["New trips", f.new_trip, "var(--blue)"],
+      ["Opened", f.open_trip, "#5F8EE8"],
+      ["Routes", f.routes, "var(--green)"],
+      ["Optimise", f.optimise, "var(--amber)"],
+      ["Navigate", f.navigate, "var(--violet)"],
+      ["Share", f.share, "#5F6368"],
+      ["Paste", f.paste, "#9AA0A6"],
+      ["Reverse", f.reverse, "#9AA0A6"],
+      ["Deleted", f.delete, "var(--red)"],
     ];
-    $("funnel").innerHTML = rows.map(([n,c,col]) => `
-      <div class="fn"><div class="n">${n}</div>
-        <div class="bar"><div class="fill" style="width:${Math.round((c||0)/max*100)}%;background:${col}"></div></div>
+    $("funnel").innerHTML = rows.map(([name,c,col]) => `
+      <div class="fn"><div class="n">${name}</div>
+        <div class="bar"><div class="fill" style="width:${Math.round((c||0)/fmax*100)}%;background:${col}"></div></div>
         <div class="c">${c||0}</div></div>`).join("");
 
-    $("days").innerHTML = (d.daily || []).map(x => `
-      <div class="day"><div class="d">${esc(x.day)}</div><div class="n">${x.sessions}</div><div class="m">${x.routes} routes</div></div>`).join("");
+    $("days").innerHTML = (d.daily || []).map((x) => `
+      <div class="day"><div class="d">${esc(x.day)}</div><div class="n">${x.devices ?? x.sessions}</div><div class="m">${x.routes} rte</div></div>`).join("");
 
-    const h = d.health || {};
-    const places = h.googlePlaces ? ["Places API", "Connected", "ok"] : ["Places API", "Off · OSM fallback", "bad"];
-    $("health").innerHTML = [
-      ["Uptime", h.uptime || "—"],
-      ["Memory", `${h.memoryMb || 0} MB`],
-      ["Node", h.node || "—"],
-      ["Host", h.host || "—"],
-      ["Requests", d.server?.requests ?? 0],
-      ["Suggests", d.server?.suggests ?? 0],
-      places,
-      ["Geocodes", d.server?.geocodes ?? 0],
-    ].map(([l,v,cls]) => `<div class="hitem"><div class="l">${l}</div><div class="v ${cls||""}">${esc(v)}</div></div>`).join("");
+    const plats = d.platforms || {};
+    const pmax = Math.max(1, ...Object.values(plats), 1);
+    $("platforms").innerHTML = Object.keys(plats).length
+      ? Object.entries(plats).sort((a,b)=>b[1]-a[1]).map(([name,c]) => `
+        <div class="fn"><div class="n">${esc(name)}</div>
+          <div class="bar"><div class="fill" style="width:${Math.round(c/pmax*100)}%;background:var(--blue)"></div></div>
+          <div class="c">${c}</div></div>`).join("")
+      : `<div class="empty">No platform data yet.</div>`;
+    const buckets = d.stopBuckets || {};
+    $("stops").innerHTML = Object.entries(buckets).map(([name,c]) => `
+      <div class="fn"><div class="n">${esc(name)} stops</div>
+        <div class="bar"><div class="fill" style="width:${Math.round((c||0)/Math.max(1,...Object.values(buckets))*100)}%;background:var(--green)"></div></div>
+        <div class="c">${c||0}</div></div>`).join("");
+
+    const users = d.users || [];
+    $("userCount").textContent = `${users.length} recent`;
+    $("users").innerHTML = users.length
+      ? users.map((u) => `
+        <div class="ur">
+          <div class="who"><strong>${esc(u.platform)} · ${esc(u.id)}</strong>
+            <span>${esc(u.lastSeen)} · ${u.routes} routes · ${u.sessions} sessions${u.tz ? " · " + esc(u.tz) : ""}</span></div>
+          ${u.new ? `<span class="badge new">New</span>` : `<span class="badge">Return</span>`}
+        </div>`).join("")
+      : `<div class="empty">No users stored yet.</div>`;
 
     const feed = d.feed || [];
     $("feed").innerHTML = feed.length
-      ? feed.map(e => `<div class="ev"><span class="t">${esc(e.time)}</span><span class="pill k-${esc(e.kind)}">${esc(e.kind)}</span><span class="det">${esc(e.detail)}</span></div>`).join("")
+      ? feed.map((e) => `<div class="ev"><span class="t">${esc(e.time)}</span><span class="pill k-${esc(e.kind)}">${esc(String(e.kind).replace(/_/g," "))}</span><span class="det">${esc(e.detail)}</span><span class="uid">${esc(e.user||"")}</span></div>`).join("")
       : `<div class="empty">Waiting for traffic…</div>`;
 
     const errs = d.recentErrors || [];
+    $("errSub").textContent = `${d.errors24h || 0} in 24h`;
     $("errs").innerHTML = errs.length
-      ? errs.map(e => `<div class="er"><span class="src ${esc(e.source)}">${esc(e.source)}</span><span class="msg">${esc(e.message)}${e.path?`<div class="when">${esc(e.path)}</div>`:""}</span><span class="when">${esc(e.time)}</span></div>`).join("")
-      : `<div class="empty">No errors in the last 7 days.</div>`;
+      ? errs.map((e) => `<div class="er"><span class="src ${esc(e.source)}">${esc(e.source)}</span><span class="msg">${esc(e.message)}${e.path?`<div class="t" style="width:auto;margin-top:2px">${esc(e.path)}</div>`:""}</span><span class="t">${esc(e.time)}</span></div>`).join("")
+      : `<div class="empty">No errors stored.</div>`;
 
-    $("foot").textContent = `Auto-refresh 8s · ${d.totalEvents7d || 0} events stored · ${d.totalEvents24h || 0} in last 24h`;
+    const h = d.health || {};
+    const places = h.googlePlaces ? ["Places API", "Connected", "ok"] : ["Places API", "OSM fallback", "bad"];
+    $("health").innerHTML = [
+      ["Uptime", h.uptime || "—"],
+      ["Restarts", h.bootCount ?? "—"],
+      ["Memory", `${h.memoryMb || 0} MB RSS`],
+      ["Heap", `${h.heapMb || 0} MB`],
+      ["Node", h.node || "—"],
+      ["Host", h.host || "—"],
+      ["CPUs", h.cpus ?? "—"],
+      ["Load", h.load ?? "—"],
+      ["Requests", n(d.server?.requests)],
+      ["Suggests", n(d.server?.suggests)],
+      ["Geocodes", n(d.server?.geocodes)],
+      ["API routes", n(d.server?.routes)],
+      ["Optimises", n(d.server?.optimises)],
+      ["Tracking since", h.firstBootAt || "—"],
+      ["Last boot", h.lastBootAt || "—"],
+      ["Events on disk", n(h.eventsStored)],
+      ["Users on disk", n(h.devicesStored)],
+      places,
+    ].map(([l,v,cls]) => `<div class="hitem"><div class="l">${l}</div><div class="v ${cls||""}">${esc(v)}</div></div>`).join("");
+
+    $("foot").textContent = `${d.generatedAt || ""} · ${n(d.totalEventsStored)} events saved · ${n(d.uniqueUsersAllTime)} unique users · auto-refresh ${live ? "on" : "off"}`;
   }
 
   if (pass) {
@@ -320,7 +504,7 @@
       if (!ok) { pass = ""; sessionStorage.removeItem("trips_admin"); return; }
       $("gate").style.display = "none";
       $("app").style.display = "block";
-      timer = setInterval(refresh, 8000);
+      if (live) timer = setInterval(refresh, 5000);
     });
   }
 </script>

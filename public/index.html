@@ -15,7 +15,7 @@
   <link rel="icon" href="icon.svg"/>
   <title>Trips</title>
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
-  <link rel="stylesheet" href="styles.css?v=32"/>
+  <link rel="stylesheet" href="styles.css?v=33"/>
 </head>
 <body>
 
@@ -56,7 +56,7 @@
     <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" style="color:var(--muted);flex-shrink:0"><path d="M9 18l6-6-6-6"/></svg>
   </button>
 
-  <div id="tripList" class="trip-list" style="margin-bottom:16px"></div>
+  <div id="tripList" class="trip-list"></div>
 
   <div id="emptyState" class="empty-state">
     <div class="empty-icon">
@@ -89,8 +89,8 @@
     <!-- summary row -->
     <div class="summary-row">
       <div class="summary-text">
-        <strong id="summaryTime">Add two places</strong>
-        <span id="summaryMeta">Unlimited stops · no cap</span>
+        <strong id="summaryTime">Add a destination</strong>
+        <span id="summaryMeta">Search below or tap + Stop</span>
       </div>
       <button id="btnMapToggle" class="pill-btn">
         <svg id="mapToggleIcon" viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M1 6l7-3 8 3 7-3v15l-7 3-8-3-7 3V6z"/><path d="M8 3v15M16 6v15"/></svg>
@@ -182,6 +182,6 @@
 </div>
 
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-<script src="app.js?v=32"></script>
+<script src="app.js?v=33"></script>
 </body>
 </html>
