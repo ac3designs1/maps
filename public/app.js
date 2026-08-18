@@ -285,8 +285,7 @@ function newTrip() {
   setRecords([trip,...(S.records||readLocal()).filter(t=>t.id!==trip.id)]);
   S.trip=trip; S.route=null; S.navigating=false;
   syncStops(true); renderList(); showTrip(); setSnap("full");
-  api(`/api/trips/${trip.id}`,{method:"PUT",body:JSON.stringify({trip})}).catch(()=>{});
-  setTimeout(()=>$("stopList").querySelector("input")?.focus(), 240);
+  setTimeout(()=>$("stopList").querySelector(".stop-input")?.focus(), 240);
 }
 
 /* ─── save ─── */
@@ -298,7 +297,6 @@ function saveTrip() {
   S.trip.updatedAt=Date.now();
   setRecords(mergeTrips([S.trip],S.records||readLocal()));
   renderList(); rememberLast(S.trip.id);
-  api(`/api/trips/${S.trip.id}`,{method:"PUT",body:JSON.stringify({trip:S.trip})}).catch(()=>{});
 }
 
 /* ─── autocomplete ─── */
@@ -308,7 +306,7 @@ function hideSuggest() {
 }
 
 function activeStopInput() {
-  if (S.focusId) return $("stopList").querySelector(`input[data-id="${S.focusId}"]`);
+  if (S.focusId) return $("stopList").querySelector(`.stop-input[data-id="${S.focusId}"]`);
   const el = document.activeElement;
   return el?.matches?.(".stop-input") ? el : null;
 }
@@ -394,7 +392,7 @@ function applyHit(hit) {
   if (!stop) return;
   stop.query=hit.label; stop.label=hit.label; stop.lat=hit.lat; stop.lng=hit.lng;
   hideSuggest();
-  const input = $("stopList").querySelector(`input[data-id="${stop.id}"]`);
+  const input = $("stopList").querySelector(`.stop-input[data-id="${stop.id}"]`);
   if (input) { input.value=hit.label; input.classList.remove("unresolved"); }
   updateRowMeta(); scheduleSave(); scheduleRoute(false); buzz();
 }
@@ -707,7 +705,6 @@ $("tripList").addEventListener("click",e=>{
       const id=row.dataset.id;
       const prev=(S.records||[]).slice();
       setRecords(prev.filter(t=>t.id!==id));
-      api(`/api/trips/${id}`,{method:"DELETE"}).catch(()=>{});
       renderList();
       toast("Trip deleted",()=>{setRecords(prev);renderList();});
     }
@@ -801,7 +798,6 @@ $("modalBody").addEventListener("click", e => {
     del()     {
       const id=S.trip.id, prev=(S.records||readLocal()).slice();
       setRecords(prev.filter(t=>t.id!==id));
-      api(`/api/trips/${id}`,{method:"DELETE"}).catch(()=>{});
       closeModal(); S.trip=null; showList(); renderList();
       toast("Trip deleted",()=>{ setRecords(prev); renderList(); });
     },
@@ -935,7 +931,7 @@ function drawMap(fit) {
     const cls=`map-pin${i===0?" pin-origin":last?" pin-dest":""}${active?" pin-active":""}`;
     const icon=L.divIcon({className:"",html:`<div class="${cls}">${i+1}</div>`,iconSize:[28,28],iconAnchor:[14,14]});
     const mk=L.marker([s.lat,s.lng],{icon}).addTo(S.map);
-    mk.on("click",()=>{ S.focusId=s.id; setSnap("full"); const inp=$("stopList").querySelector(`input[data-id="${s.id}"]`); inp?.scrollIntoView({block:"center"}); inp?.focus(); });
+    mk.on("click",()=>{ S.focusId=s.id; setSnap("full"); const inp=$("stopList").querySelector(`.stop-input[data-id="${s.id}"]`); inp?.scrollIntoView({block:"center"}); inp?.focus(); });
     S.markers.push(mk);
   });
   if (S.here) {
