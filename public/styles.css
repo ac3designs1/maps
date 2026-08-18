@@ -475,11 +475,19 @@ input, textarea { outline: none; }
   background: rgba(0,0,0,.18); margin: 10px auto 0;
 }
 @media (prefers-color-scheme: dark) { .modal-handle { background: rgba(255,255,255,.2); } }
-.modal-sheet h2 {
-  margin: 0; padding: 14px 20px 14px;
-  font-size: 18px; font-weight: 700; letter-spacing: -.025em;
+.modal-header {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 14px 14px 14px 20px;
   border-bottom: .5px solid var(--line);
 }
+.modal-header h2 { margin: 0; font-size: 18px; font-weight: 700; letter-spacing: -.025em; }
+.modal-close {
+  width: 32px; height: 32px; border-radius: 16px;
+  background: var(--card2); color: var(--muted);
+  display: grid; place-items: center; flex-shrink: 0;
+  transition: background .1s, color .1s;
+}
+.modal-close:active { background: var(--line); color: var(--text); }
 
 /* modal sections */
 .msec { margin-top: 12px; border-top: .5px solid var(--line); border-bottom: .5px solid var(--line); }

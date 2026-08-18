@@ -120,7 +120,11 @@ function openModal(title, html) {
   $("modal").classList.remove("hidden");
 }
 function closeModal() { $("modal").classList.add("hidden"); }
-$("modalBack").onclick = closeModal;
+$("modalBack").onclick   = closeModal;
+$("modalClose").onclick  = closeModal;
+$("modal").addEventListener("click", e => {
+  if (e.target === $("modal")) closeModal();
+});
 
 /* ─── local storage ─── */
 function readLocal() {
