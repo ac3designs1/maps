@@ -1,13 +1,16 @@
 /* global L */
-const $ = (id) => document.getElementById(id);
-const STORE_KEY = "maps.trips.v1";
-const PINS_KEY = "maps.pins.v1";
-const LAST_KEY = "maps.lastTrip";
+"use strict";
 
-const state = {
-  trips: [],
-  records: [],
-  trip: null,
+/* ─── constants ─── */
+const STORE_KEY = "maps.trips.v1";
+const PINS_KEY  = "maps.pins.v1";
+const LAST_KEY  = "maps.lastTrip";
+
+/* ─── state ─── */
+const S = {
+  trips: [],       /* summaries */
+  records: [],     /* full trip objects */
+  trip: null,      /* active trip */
   filter: "",
   bias: { lat: -33.8688, lng: 151.2093 },
   here: null,
@@ -30,342 +33,242 @@ const state = {
   undo: null,
 };
 
-function buzz(ms = 8) {
-  try {
-    navigator.vibrate?.(ms);
-  } catch {
-    /* ignore */
-  }
-}
-
-function toast(msg, undoFn) {
-  const el = $("toast");
-  $("toastMsg").textContent = msg;
-  const act = $("toastAct");
-  if (undoFn) {
-    state.undo = undoFn;
-    act.classList.remove("hidden");
-    act.textContent = "Undo";
-  } else {
-    state.undo = null;
-    act.classList.add("hidden");
-  }
-  el.classList.remove("hidden");
-  clearTimeout(toast._t);
-  toast._t = setTimeout(() => {
-    el.classList.add("hidden");
-    state.undo = null;
-    act.classList.add("hidden");
-  }, undoFn ? 4500 : 2400);
-}
-
-$("toastAct").onclick = () => {
-  if (state.undo) {
-    state.undo();
-    state.undo = null;
-    $("toastAct").classList.add("hidden");
-    $("toast").classList.add("hidden");
-  }
-};
-
-async function api(path, opts = {}) {
-  const ac = opts.signal || new AbortController();
-  const timer = setTimeout(() => ac.abort(), opts.timeout || 22000);
-  try {
-    const res = await fetch(path, {
-      ...opts,
-      signal: ac.signal,
-      headers: { Accept: "application/json", "Content-Type": "application/json", ...(opts.headers || {}) },
-    });
-    const text = await res.text();
-    let data = {};
-    try {
-      data = text ? JSON.parse(text) : {};
-    } catch {
-      throw new Error("Server error");
-    }
-    if (!res.ok) throw new Error(data.error || "Something went wrong");
-    return data;
-  } catch (err) {
-    if (err?.name === "AbortError") throw Object.assign(new Error("cancelled"), { cancelled: true });
-    throw err;
-  } finally {
-    clearTimeout(timer);
-  }
-}
+/* ─── tiny helpers ─── */
+const $  = (id) => document.getElementById(id);
+const vv = () => window.visualViewport || null;
 
 function uid() {
-  return crypto.randomUUID ? crypto.randomUUID() : `${Date.now()}-${Math.random().toString(16).slice(2)}`;
+  return crypto.randomUUID?.() ?? `${Date.now()}-${Math.random().toString(16).slice(2)}`;
 }
-
-function filledStops(trip = state.trip) {
-  return (trip?.stops || []).filter((s) => (s.label || s.query || "").trim());
+function buzz(ms = 8) { try { navigator.vibrate?.(ms); } catch {} }
+function esc(s) {
+  return String(s ?? "").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/"/g,"&quot;");
 }
-
-function geocodedStops(trip = state.trip) {
-  return (trip?.stops || []).filter((s) => Number.isFinite(s.lat) && Number.isFinite(s.lng));
-}
-
-function titleFromStops(trip) {
-  const f = filledStops(trip);
-  if (f.length < 2) return trip.title && trip.title !== "Untitled trip" ? trip.title : "Untitled trip";
-  return `${(f[0].label || f[0].query).split(",")[0]} → ${(f[f.length - 1].label || f[f.length - 1].query).split(",")[0]}`;
-}
-
 function fmtDur(s) {
   if (!s) return "";
   const m = Math.round(s / 60);
   if (m < 1) return "<1 min";
   if (m < 60) return `${m} min`;
-  const h = Math.floor(m / 60);
-  const r = m % 60;
+  const h = Math.floor(m / 60), r = m % 60;
   return r ? `${h} hr ${r} min` : `${h} hr`;
 }
-
 function fmtKm(m) {
-  if (!m && m !== 0) return "";
-  if (m < 950) return `${Math.round(m)} m`;
-  return `${(m / 1000).toFixed(m >= 100000 ? 0 : 1)} km`;
+  if (m == null) return "";
+  return m < 950 ? `${Math.round(m)} m` : `${(m/1000).toFixed(m >= 100000 ? 0 : 1)} km`;
 }
-
 function relTime(ts) {
   const d = Date.now() - ts;
-  if (d < 60_000) return "Just now";
-  if (d < 3600_000) return `${Math.floor(d / 60_000)}m ago`;
-  if (d < 86400_000) return `${Math.floor(d / 3600_000)}h ago`;
+  if (d < 60_000)    return "Just now";
+  if (d < 3600_000)  return `${Math.floor(d/60_000)}m ago`;
+  if (d < 86400_000) return `${Math.floor(d/3600_000)}h ago`;
   return new Date(ts).toLocaleDateString();
 }
-
-function esc(s) {
-  return String(s || "")
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/"/g, "&quot;");
+function filledStops(trip = S.trip)   { return (trip?.stops||[]).filter(s=>(s.label||s.query||"").trim()); }
+function geocodedStops(trip = S.trip) { return (trip?.stops||[]).filter(s=>Number.isFinite(s.lat)&&Number.isFinite(s.lng)); }
+function titleFromStops(trip) {
+  const f = filledStops(trip);
+  if (f.length < 2) return trip.title && trip.title !== "Untitled trip" ? trip.title : "Untitled trip";
+  return `${(f[0].label||f[0].query).split(",")[0]} → ${(f[f.length-1].label||f[f.length-1].query).split(",")[0]}`;
 }
 
-function dedupeClientHits(hits) {
+/* ─── api ─── */
+async function api(path, opts = {}) {
+  const ac = new AbortController();
+  const timer = setTimeout(() => ac.abort(), opts.timeout || 22000);
+  try {
+    const res = await fetch(path, {
+      ...opts,
+      signal: ac.signal,
+      headers: { Accept:"application/json","Content-Type":"application/json",...(opts.headers||{}) },
+    });
+    const text = await res.text();
+    let data = {};
+    try { data = text ? JSON.parse(text) : {}; } catch { throw new Error("Server error"); }
+    if (!res.ok) throw new Error(data.error || "Something went wrong");
+    return data;
+  } catch (err) {
+    if (err?.name === "AbortError") throw Object.assign(new Error("cancelled"),{cancelled:true});
+    throw err;
+  } finally { clearTimeout(timer); }
+}
+
+/* ─── toast ─── */
+function toast(msg, undoFn) {
+  $("toastMsg").textContent = msg;
+  const u = $("toastUndo");
+  if (undoFn) { S.undo = undoFn; u.classList.remove("hidden"); }
+  else         { S.undo = null;  u.classList.add("hidden");    }
+  $("toast").classList.remove("hidden");
+  clearTimeout(toast._t);
+  toast._t = setTimeout(() => {
+    $("toast").classList.add("hidden");
+    S.undo = null;
+    u.classList.add("hidden");
+  }, undoFn ? 4500 : 2400);
+}
+$("toastUndo").onclick = () => {
+  if (!S.undo) return;
+  S.undo(); S.undo = null;
+  $("toastUndo").classList.add("hidden");
+  $("toast").classList.add("hidden");
+};
+
+/* ─── modal ─── */
+function openModal(title, html) {
+  $("modalTitle").textContent = title;
+  $("modalBody").innerHTML = html;
+  $("modal").classList.remove("hidden");
+}
+function closeModal() { $("modal").classList.add("hidden"); }
+$("modalBack").onclick = closeModal;
+
+/* ─── local storage ─── */
+function readLocal() {
+  try { const p = JSON.parse(localStorage.getItem(STORE_KEY)||'{"trips":[]}'); return Array.isArray(p.trips)?p.trips:[]; }
+  catch { return []; }
+}
+function writeLocal(trips) { try { localStorage.setItem(STORE_KEY,JSON.stringify({trips})); } catch {} }
+function readPins() { try { return JSON.parse(localStorage.getItem(PINS_KEY)||"{}"); } catch { return {}; } }
+function writePins(p) { try { localStorage.setItem(PINS_KEY,JSON.stringify(p)); } catch {} }
+function pinHit(key) {
+  const p = readPins()[key];
+  if (!p||!Number.isFinite(p.lat)) return null;
+  return { label:p.label, lat:p.lat, lng:p.lng, kind:"pin", name:p.label.split(",")[0] };
+}
+function setPin(key,hit) { const p=readPins(); p[key]={label:hit.label,lat:hit.lat,lng:hit.lng}; writePins(p); }
+function rememberLast(id) { try { if(id) localStorage.setItem(LAST_KEY,id); } catch {} }
+
+/* ─── trip summaries ─── */
+function summarize(t) {
+  const f = (t.stops||[]).filter(s=>s.label||s.query);
+  return {
+    id: t.id, title: t.title, updatedAt: t.updatedAt, createdAt: t.createdAt,
+    stopCount: f.length,
+    preview: f.slice(0,3).map(s=>s.label||s.query).join(" → "),
+    distanceM: t.distanceM||0, durationS: t.durationS||0, starred: !!t.starred,
+  };
+}
+function mergeTrips(a,b) {
+  const map = new Map();
+  for (const t of [...a,...b]) {
+    if (!t?.id) continue;
+    const prev = map.get(t.id);
+    if (!prev||(t.updatedAt||0)>=(prev.updatedAt||0)) map.set(t.id,t);
+  }
+  return [...map.values()].sort((x,y)=>(y.updatedAt||0)-(x.updatedAt||0));
+}
+function emptyTrip() {
+  const now = Date.now();
+  return { id:uid(), title:"Untitled trip", roundtrip:false, keepEnds:true,
+    avoidTolls:false, avoidFerries:false, starred:false,
+    createdAt:now, updatedAt:now,
+    stops: [{id:uid(),query:"",label:"",lat:null,lng:null},{id:uid(),query:"",label:"",lat:null,lng:null}] };
+}
+function setRecords(trips) { S.records=trips; writeLocal(trips); S.trips=trips.map(summarize); }
+
+/* ─── dedup ─── */
+function dedupeHits(hits) {
   const out = [];
   for (const h of hits) {
-    const dup = out.some((p) => {
-      const dlat = (h.lat - p.lat) * 111000;
-      const dlng = (h.lng - p.lng) * 111000 * Math.cos((h.lat * Math.PI) / 180);
-      const dm = Math.sqrt(dlat * dlat + dlng * dlng);
-      if (dm < 35) return true;
-      const norm = (s) =>
-        String(s || "")
-          .toLowerCase()
-          .replace(/[^\w\s]/g, " ")
-          .replace(/\s+/g, " ")
-          .trim();
-      const a = norm(h.label);
-      const b = norm(p.label);
-      if (a && a === b) return true;
-      const na = norm(h.name || h.label.split(",")[0]);
-      const nb = norm(p.name || p.label.split(",")[0]);
-      return dm < 80 && na && na === nb;
+    const dup = out.some(p => {
+      const dlat=(h.lat-p.lat)*111000, dlng=(h.lng-p.lng)*111000*Math.cos(h.lat*Math.PI/180);
+      const dm=Math.sqrt(dlat*dlat+dlng*dlng);
+      if (dm<35) return true;
+      const norm=s=>String(s||"").toLowerCase().replace(/[^\w\s]/g," ").replace(/\s+/g," ").trim();
+      const a=norm(h.label),b=norm(p.label);
+      if (a&&a===b) return true;
+      const na=norm(h.name||h.label.split(",")[0]),nb=norm(p.name||p.label.split(",")[0]);
+      return dm<80&&na&&na===nb;
     });
     if (!dup) out.push(h);
   }
   return out;
 }
 
+/* ─── screens ─── */
 function showList() {
   $("listScreen").classList.remove("hidden");
   $("tripScreen").classList.add("hidden");
   hideSuggest();
+  renderContinue();
 }
-
 function showTrip() {
   $("listScreen").classList.add("hidden");
   $("tripScreen").classList.remove("hidden");
-  setSnap(state.snap || "mid");
-  requestAnimationFrame(() => {
-    state.map?.invalidateSize();
-    drawMap(true);
-  });
+  setSnap(S.snap||"mid");
+  requestAnimationFrame(() => { S.map?.invalidateSize(); drawMap(true); });
 }
 
+/* ─── snap ─── */
 function setSnap(which) {
-  state.snap = which;
-  const el = $("plannerSheet");
-  el.classList.remove("snap-collapsed", "snap-mid", "snap-full");
+  S.snap = which;
+  const el = $("sheet");
+  el.classList.remove("snap-collapsed","snap-mid","snap-full");
   el.classList.add(`snap-${which}`);
-  setTimeout(() => state.map?.invalidateSize(), 240);
-  const mb = $("btnMap");
-  if (mb) {
-    const showingMap = which !== "full";
-    mb.classList.toggle("active", showingMap);
-    mb.innerHTML = showingMap
-      ? `<svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 3H5a2 2 0 0 0-2 2v4m6-6h10a2 2 0 0 1 2 2v4M9 3v18m0 0h10a2 2 0 0 0 2-2V9M9 21H5a2 2 0 0 1-2-2V9m0 0h18"/></svg> List`
-      : `<svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 6l7-3 8 3 7-3v15l-7 3-8-3-7 3V6z"/><path d="M8 3v15M16 6v15"/></svg> Map`;
+  setTimeout(() => S.map?.invalidateSize(), 260);
+  const icon  = $("mapToggleIcon");
+  const label = $("mapToggleLabel");
+  const btn   = $("btnMapToggle");
+  if (which === "full") {
+    btn.classList.remove("active");
+    if (label) label.textContent = "Map";
+    if (icon) icon.innerHTML = `<path d="M1 6l7-3 8 3 7-3v15l-7 3-8-3-7 3V6z"/><path d="M8 3v15M16 6v15"/>`;
+  } else {
+    btn.classList.add("active");
+    if (label) label.textContent = "List";
+    if (icon) icon.innerHTML = `<path d="M9 3H5a2 2 0 0 0-2 2v4m6-6h10a2 2 0 0 1 2 2v4M9 3v18m0 0h10a2 2 0 0 0 2-2V9M9 21H5a2 2 0 0 1-2-2V9m0 0h18"/>`;
   }
 }
 
-function readPins() {
-  try {
-    return JSON.parse(localStorage.getItem(PINS_KEY) || "{}");
-  } catch {
-    return {};
-  }
-}
-
-function writePins(pins) {
-  try {
-    localStorage.setItem(PINS_KEY, JSON.stringify(pins));
-  } catch {
-    /* ignore */
-  }
-}
-
-function pinHit(key) {
-  const p = readPins()[key];
-  if (!p || !Number.isFinite(p.lat)) return null;
-  return { label: p.label, lat: p.lat, lng: p.lng, kind: "pin", name: p.label.split(",")[0] };
-}
-
-function setPin(key, hit) {
-  const pins = readPins();
-  pins[key] = { label: hit.label, lat: hit.lat, lng: hit.lng };
-  writePins(pins);
-}
-
-function summarize(t) {
-  const filled = (t.stops || []).filter((s) => s.label || s.query);
-  return {
-    id: t.id,
-    title: t.title,
-    updatedAt: t.updatedAt,
-    createdAt: t.createdAt,
-    stopCount: filled.length,
-    preview: filled.slice(0, 3).map((s) => s.label || s.query).join(" → "),
-    distanceM: t.distanceM || 0,
-    durationS: t.durationS || 0,
-    starred: !!t.starred,
-  };
-}
-
-function readLocal() {
-  try {
-    const parsed = JSON.parse(localStorage.getItem(STORE_KEY) || "{\"trips\":[]}");
-    return Array.isArray(parsed.trips) ? parsed.trips : [];
-  } catch {
-    return [];
-  }
-}
-
-function writeLocal(trips) {
-  try {
-    localStorage.setItem(STORE_KEY, JSON.stringify({ trips }));
-  } catch {
-    /* quota */
-  }
-}
-
-function mergeTrips(a, b) {
-  const map = new Map();
-  for (const t of [...a, ...b]) {
-    if (!t?.id) continue;
-    const prev = map.get(t.id);
-    if (!prev || (t.updatedAt || 0) >= (prev.updatedAt || 0)) map.set(t.id, t);
-  }
-  return [...map.values()].sort((x, y) => (y.updatedAt || 0) - (x.updatedAt || 0));
-}
-
-function emptyTrip() {
-  const now = Date.now();
-  return {
-    id: uid(),
-    title: "Untitled trip",
-    roundtrip: false,
-    keepEnds: true,
-    avoidTolls: false,
-    avoidFerries: false,
-    starred: false,
-    createdAt: now,
-    updatedAt: now,
-    stops: [
-      { id: uid(), query: "", label: "", lat: null, lng: null },
-      { id: uid(), query: "", label: "", lat: null, lng: null },
-    ],
-  };
-}
-
-function rememberLast(id) {
-  try {
-    if (id) localStorage.setItem(LAST_KEY, id);
-  } catch {
-    /* ignore */
-  }
-}
-
+/* ─── list screen ─── */
 function renderContinue() {
   const card = $("continueCard");
+  if (!card) return;
   const lastId = localStorage.getItem(LAST_KEY);
-  const trip = lastId && (state.records || []).find((t) => t.id === lastId);
-  if (!trip || !$("tripScreen").classList.contains("hidden")) {
-    card.classList.add("hidden");
-    return;
-  }
-  const sub = $("continueSub");
-  if (sub) sub.textContent = `${esc(trip.title || "Untitled trip")} · ${filledStops(trip).length} stops`;
+  const trip = lastId && (S.records||[]).find(t=>t.id===lastId);
+  if (!trip||!$("tripScreen").classList.contains("hidden")) { card.classList.add("hidden"); return; }
+  $("continueTitle").textContent = trip.title||"Untitled trip";
+  $("continueSub").textContent   = `${filledStops(trip).length} stops`;
   card.onclick = () => openTrip(trip.id);
   card.classList.remove("hidden");
 }
 
-function setRecords(trips) {
-  state.records = trips;
-  writeLocal(trips);
-  state.trips = trips.map(summarize);
-}
-
 function renderList() {
-  const q = state.filter.trim().toLowerCase();
-  const rows = state.trips
-    .filter((t) => !q || `${t.title} ${t.preview}`.toLowerCase().includes(q))
-    .sort((a, b) => (a.starred ? 0 : 1) - (b.starred ? 0 : 1) || b.updatedAt - a.updatedAt);
-  $("tripEmpty").classList.toggle("hidden", rows.length > 0);
-  $("tripList").innerHTML = rows
-    .map((t) => {
-      const stats = t.durationS ? fmtDur(t.durationS) : relTime(t.updatedAt);
-      const star = t.starred ? '<span class="star">★</span> ' : "";
-      return `<button type="button" class="trip-row" data-id="${t.id}">
-        <span class="trip-pin">${t.stopCount || 0}</span>
-        <span>
-          <strong>${star}${esc(t.title || "Untitled trip")}</strong>
-          <span class="preview">${esc(t.preview || "No stops yet")}</span>
-        </span>
-        <span class="meta">${esc(stats)}<br>${t.stopCount || 0} stops</span>
-        <span class="chev">›</span>
-      </button>`;
-    })
-    .join("");
+  const q = S.filter.trim().toLowerCase();
+  const rows = S.trips
+    .filter(t=>!q||`${t.title} ${t.preview}`.toLowerCase().includes(q))
+    .sort((a,b)=>(a.starred?0:1)-(b.starred?0:1)||b.updatedAt-a.updatedAt);
+  const empty = $("emptyState");
+  empty.classList.toggle("hidden", rows.length > 0);
+  $("tripList").innerHTML = rows.map(t => {
+    const stats = t.durationS ? fmtDur(t.durationS) : relTime(t.updatedAt);
+    const initials = (t.title||"?").replace(/\s+/g,"").slice(0,2).toUpperCase();
+    return `<button type="button" class="trip-row" data-id="${t.id}">
+      <span class="trip-badge">${esc(initials)}</span>
+      <span class="trip-info">
+        <span class="trip-name">${t.starred?'<span class="starred">★</span> ':''}${esc(t.title||"Untitled trip")}</span>
+        <span class="trip-sub">${esc(t.preview||"No stops yet")}</span>
+      </span>
+      <span class="trip-meta">${esc(stats)}<br>${t.stopCount||0} stops</span>
+      <svg class="trip-chev" viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 18l6-6-6-6"/></svg>
+    </button>`;
+  }).join("");
   renderContinue();
 }
 
 async function loadTrips() {
   let records = readLocal();
-  try {
-    const data = await api("/api/trips");
-    records = mergeTrips(records, data.records || []);
-  } catch {
-    /* offline is fine */
-  }
+  try { const d=await api("/api/trips"); records=mergeTrips(records,d.records||[]); } catch {}
   setRecords(records);
   renderList();
 }
 
 function openTrip(id) {
-  const raw = (state.records || readLocal()).find((t) => t.id === id);
+  const raw = (S.records||readLocal()).find(t=>t.id===id);
   if (!raw) return toast("Trip not found");
   const base = emptyTrip();
-  state.trip = {
-    ...base,
-    ...raw,
-    stops: raw.stops?.length ? raw.stops : base.stops,
-  };
-  state.route = null;
-  state.navigating = false;
-  state.navI = 0;
+  S.trip = { ...base, ...raw, stops: raw.stops?.length ? raw.stops : base.stops };
+  S.route=null; S.navigating=false; S.navI=0;
   rememberLast(id);
   syncStops(true);
   showTrip();
@@ -375,1104 +278,763 @@ function openTrip(id) {
 function newTrip() {
   buzz();
   const trip = emptyTrip();
-  setRecords([trip, ...(state.records || readLocal()).filter((t) => t.id !== trip.id)]);
-  state.trip = trip;
-  state.route = null;
-  state.navigating = false;
-  syncStops(true);
-  renderList();
-  showTrip();
-  setSnap("full");
-  api("/api/trips/" + trip.id, { method: "PUT", body: JSON.stringify({ trip }) }).catch(() => {});
-  setTimeout(() => $("stopList").querySelector("input")?.focus(), 220);
+  setRecords([trip,...(S.records||readLocal()).filter(t=>t.id!==trip.id)]);
+  S.trip=trip; S.route=null; S.navigating=false;
+  syncStops(true); renderList(); showTrip(); setSnap("full");
+  api(`/api/trips/${trip.id}`,{method:"PUT",body:JSON.stringify({trip})}).catch(()=>{});
+  setTimeout(()=>$("stopList").querySelector("input")?.focus(), 240);
 }
 
-function scheduleSave() {
-  clearTimeout(state.saveTimer);
-  state.saveTimer = setTimeout(saveTrip, 400);
-}
-
+/* ─── save ─── */
+function scheduleSave() { clearTimeout(S.saveTimer); S.saveTimer=setTimeout(saveTrip,400); }
 function saveTrip() {
-  if (!state.trip) return;
-  if (!state.trip.title || state.trip.title === "Untitled trip") state.trip.title = titleFromStops(state.trip);
-  if (state.route) {
-    state.trip.distanceM = state.route.distanceM;
-    state.trip.durationS = state.route.durationS;
-  }
-  state.trip.updatedAt = Date.now();
-  setRecords(mergeTrips([state.trip], state.records || readLocal()));
-  renderList();
-  rememberLast(state.trip.id);
-  api(`/api/trips/${state.trip.id}`, { method: "PUT", body: JSON.stringify({ trip: state.trip }) }).catch(() => {});
+  if (!S.trip) return;
+  if (!S.trip.title||S.trip.title==="Untitled trip") S.trip.title=titleFromStops(S.trip);
+  if (S.route) { S.trip.distanceM=S.route.distanceM; S.trip.durationS=S.route.durationS; }
+  S.trip.updatedAt=Date.now();
+  setRecords(mergeTrips([S.trip],S.records||readLocal()));
+  renderList(); rememberLast(S.trip.id);
+  api(`/api/trips/${S.trip.id}`,{method:"PUT",body:JSON.stringify({trip:S.trip})}).catch(()=>{});
 }
 
+/* ─── autocomplete ─── */
 function hideSuggest() {
-  $("suggestPop").classList.add("hidden");
-  $("suggestPop").innerHTML = "";
-  $("tripScreen").classList.remove("suggest-open");
+  const box = $("suggestBox");
+  box.classList.add("hidden"); box.innerHTML=""; box._hits=null;
 }
 
 function activeStopInput() {
-  if (state.focusId) return $("stopList").querySelector(`input[data-id="${state.focusId}"]`);
-  const active = document.activeElement;
-  return active?.matches?.(".stop-row input") ? active : null;
+  if (S.focusId) return $("stopList").querySelector(`input[data-id="${S.focusId}"]`);
+  const el = document.activeElement;
+  return el?.matches?.(".stop-input") ? el : null;
 }
 
-function scrollStopForSuggest(input) {
-  const list = $("stopList");
-  const row = input?.closest(".stop-row");
-  if (!list || !row) return;
-  const listRect = list.getBoundingClientRect();
-  const rowRect = row.getBoundingClientRect();
-  const target = rowRect.top - listRect.top + list.scrollTop - 6;
-  list.scrollTo({ top: Math.max(0, target), behavior: "smooth" });
-}
-
-function placeSuggest() {
-  const pop = $("suggestPop");
+function positionSuggest() {
+  const box   = $("suggestBox");
   const input = activeStopInput();
-  if (!input || pop.classList.contains("hidden")) return;
+  if (!input||box.classList.contains("hidden")) return;
 
-  scrollStopForSuggest(input);
+  input.closest(".stop-row")?.scrollIntoView({block:"nearest",behavior:"smooth"});
 
   requestAnimationFrame(() => {
-    const inputRect = input.getBoundingClientRect();
-    const popH = Math.min(280, Math.max(pop.offsetHeight || 160, 120));
+    const r = input.getBoundingClientRect();
+    const kb = parseFloat(getComputedStyle(document.documentElement).getPropertyValue("--kb"))||0;
+    const safeB = window.innerHeight - kb - 8;
     const gap = 6;
-    const kb = Number.parseInt(getComputedStyle(document.documentElement).getPropertyValue("--kb")) || 0;
-    const sat = Number.parseInt(getComputedStyle(document.documentElement).getPropertyValue("--sat")) || 0;
-    const safeBottom = window.innerHeight - kb - 12;
-    const spaceBelow = safeBottom - inputRect.bottom - gap;
-    const spaceAbove = inputRect.top - gap - (54 + sat);
+    const below = safeB - r.bottom - gap;
+    const above = r.top - 64 - gap;
 
-    let top;
-    let maxH;
-    if (spaceBelow >= 100 || spaceBelow >= spaceAbove) {
-      top = inputRect.bottom + gap;
-      maxH = Math.min(280, Math.max(100, spaceBelow));
+    let top, maxH;
+    if (below >= 100 || below >= above) {
+      top  = r.bottom + gap;
+      maxH = Math.min(300, Math.max(100, below));
     } else {
-      maxH = Math.min(280, Math.max(100, spaceAbove));
-      top = inputRect.top - maxH - gap;
+      maxH = Math.min(300, Math.max(100, above));
+      top  = r.top - maxH - gap;
     }
-
-    pop.style.top = `${Math.max(8, top)}px`;
-    pop.style.maxHeight = `${maxH}px`;
+    box.style.top     = `${Math.max(8,top)}px`;
+    box.style.maxHeight = `${maxH}px`;
   });
 }
 
 async function lookup(q) {
-  state.suggestAc?.abort();
-  state.suggestAc = new AbortController();
+  S.suggestAc?.abort();
+  S.suggestAc = new AbortController();
   const u = new URL("/api/suggest", location.origin);
-  u.searchParams.set("q", q);
-  u.searchParams.set("lat", String(state.here?.lat ?? state.bias.lat));
-  u.searchParams.set("lon", String(state.here?.lng ?? state.bias.lng));
-  const data = await api(u.pathname + u.search, { signal: state.suggestAc.signal, timeout: 14000 });
-  return data.hits || [];
+  u.searchParams.set("q",q);
+  u.searchParams.set("lat",String(S.here?.lat ?? S.bias.lat));
+  u.searchParams.set("lon",String(S.here?.lng ?? S.bias.lng));
+  const d = await api(u.pathname+u.search,{signal:S.suggestAc.signal,timeout:14000});
+  return d.hits||[];
 }
 
-function applyHit(stop, hit) {
-  stop.query = hit.label;
-  stop.label = hit.label;
-  stop.lat = hit.lat;
-  stop.lng = hit.lng;
-}
-
-async function onSuggestPick(hit) {
-  const stop = state.trip?.stops.find((s) => s.id === state.focusId);
-  if (!stop) return;
-  applyHit(stop, hit);
-  hideSuggest();
-  const input = $("stopList").querySelector(`input[data-id="${stop.id}"]`);
-  if (input) {
-    input.value = hit.label;
-    input.classList.remove("unresolved");
-  }
-  updateRowMeta();
-  scheduleSave();
-  scheduleRoute(false);
-  buzz();
-}
-
-function stopKind(i, n) {
-  if (i === 0) return "origin";
-  if (i === n - 1 && !state.trip.roundtrip) return "dest";
-  return "";
-}
-
-function placeholder(i, n) {
-  if (i === 0) return "Address or business";
-  if (i === n - 1 && !state.trip.roundtrip) return "Address or business";
-  return "Address or business";
-}
-
-function makeRow(s, i, n) {
-  const row = document.createElement("div");
-  row.className = `stop-row ${stopKind(i, n)}`;
-  row.dataset.id = s.id;
-  row.innerHTML = `
-    <div class="rail"><span class="num">${i + 1}</span></div>
-    <div class="stop-main">
-      <input data-id="${s.id}" value="${esc(s.query || s.label)}" placeholder="${placeholder(i, n)}" autocomplete="off" autocorrect="off" spellcheck="false" enterkeyhint="search" />
-      <span class="leg"></span>
-    </div>
-    <button type="button" class="grip" data-act="grip" data-id="${s.id}" aria-label="Reorder">
-      <svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor"><circle cx="8" cy="7" r="1.4"/><circle cx="16" cy="7" r="1.4"/><circle cx="8" cy="12" r="1.4"/><circle cx="16" cy="12" r="1.4"/><circle cx="8" cy="17" r="1.4"/><circle cx="16" cy="17" r="1.4"/></svg>
-    </button>
-    <button type="button" class="del-btn" data-act="del" data-id="${s.id}" aria-label="Remove">
-      <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 6l12 12M18 6L6 18"/></svg>
+function renderSuggestRows(hits) {
+  const iconFor = kind => {
+    if (kind==="business") return `<svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor"><path d="M3 9l1-6h16l1 6v1a2 2 0 0 1-4 0 2 2 0 0 1-4 0 2 2 0 0 1-4 0 2 2 0 0 1-4 0V9zm0 5h18v7H3z"/></svg>`;
+    return `<svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor"><path d="M12 2a7 7 0 0 0-7 7c0 5 7 13 7 13s7-8 7-13a7 7 0 0 0-7-7zm0 9.5A2.5 2.5 0 1 1 12 6a2.5 2.5 0 0 1 0 5.5z"/></svg>`;
+  };
+  return hits.map((h,i) => {
+    const name = esc(h.name||h.label.split(",")[0]);
+    const addr = esc(h.label);
+    return `<button class="sug-row" data-i="${i}">
+      <span class="sug-ico">${iconFor(h.kind)}</span>
+      <span><span class="sug-name">${name}</span><span class="sug-addr">${addr}</span></span>
     </button>`;
-  bindStopInput(row.querySelector("input"));
-  return row;
-}
-
-function updateRowMeta() {
-  if (!state.trip) return;
-  const n = state.trip.stops.length;
-  [...$("stopList").children].forEach((row, i) => {
-    const s = state.trip.stops[i];
-    if (!s) return;
-    row.className = `stop-row ${stopKind(i, n)}${row.classList.contains("dragging") ? " dragging" : ""}`;
-    row.querySelector(".num").textContent = String(i + 1);
-    const input = row.querySelector("input");
-    input.placeholder = placeholder(i, n);
-    if (document.activeElement !== input) {
-      const val = s.query || s.label || "";
-      if (input.value !== val) input.value = val;
-    }
-    input.classList.toggle("unresolved", !!(input.value && !Number.isFinite(s.lat)));
-    const leg = state.route?.legs?.[i - 1];
-    row.querySelector(".leg").textContent = i > 0 && leg ? `${fmtDur(leg.durationS)} · ${fmtKm(leg.distanceM)}` : "";
-  });
-  updateEta();
-  updateNav();
-}
-
-function syncStops(force) {
-  const list = $("stopList");
-  const trip = state.trip;
-  if (!trip) {
-    list.innerHTML = "";
-    return;
-  }
-  const ids = trip.stops.map((s) => s.id);
-  const existing = [...list.children];
-  if (force || existing.map((r) => r.dataset.id).join() !== ids.join()) {
-    const map = new Map(existing.map((r) => [r.dataset.id, r]));
-    const next = [];
-    trip.stops.forEach((s, i) => {
-      const row = map.get(s.id) || makeRow(s, i, trip.stops.length);
-      map.delete(s.id);
-      next.push(row);
-    });
-    map.forEach((r) => r.remove());
-    next.forEach((r) => list.appendChild(r));
-  }
-  updateRowMeta();
-}
-
-function updateEta() {
-  const r = state.route;
-  const n = geocodedStops().length;
-  const main = $("etaMain");
-  main.classList.toggle("pulse", state.routing);
-  if (state.routing && n >= 2) {
-    main.textContent = "Finding the drive…";
-    $("etaSub").textContent = `${n} stops`;
-    $("btnStart").disabled = true;
-    return;
-  }
-  if (!r || n < 2) {
-    main.textContent = n < 2 ? "Add two places" : "No route yet";
-    $("etaSub").textContent = `${filledStops().length} stops · no 10-stop limit`;
-    $("btnStart").disabled = true;
-    return;
-  }
-  main.textContent = `${fmtDur(r.durationS)} · ${fmtKm(r.distanceM)}`;
-  const title = state.trip.title && state.trip.title !== "Untitled trip" ? state.trip.title : `${n} stops`;
-  $("etaSub").textContent = `${title}${state.trip.roundtrip ? " · round trip" : ""}`;
-  $("btnStart").disabled = false;
-}
-
-function updateNav() {
-  const bar = $("navBar");
-  if (!state.navigating) {
-    bar.classList.add("hidden");
-    return;
-  }
-  const pts = geocodedStops();
-  if (state.navI >= pts.length - 1) {
-    $("navTitle").textContent = "Trip complete";
-    $("navSub").textContent = "Every stop is done";
-    $("btnNext").textContent = "Done";
-    bar.classList.remove("hidden");
-    return;
-  }
-  const next = pts[state.navI + 1];
-  const leg = state.route?.legs?.[state.navI];
-  $("navTitle").textContent = `Stop ${state.navI + 2} of ${pts.length}`;
-  $("navSub").textContent = `${(next.label || next.query).split(",")[0]}${leg ? " · " + fmtDur(leg.durationS) : ""}`;
-  $("btnNext").textContent = "Go";
-  bar.classList.remove("hidden");
-}
-
-function bindStopInput(input) {
-  if (input.dataset.bound) return;
-  input.dataset.bound = "1";
-  const id = input.dataset.id;
-  input.addEventListener("focus", () => {
-    state.focusId = id;
-    setSnap("full");
-    requestAnimationFrame(() => scrollStopForSuggest(input));
-    if (state.here && !input.value) showHereSuggest();
-  });
-  input.addEventListener("input", () => {
-    const stop = state.trip.stops.find((s) => s.id === id);
-    if (!stop) return;
-    stop.query = input.value;
-    stop.lat = null;
-    stop.lng = null;
-    stop.label = "";
-    input.classList.toggle("unresolved", !!input.value.trim());
-    clearTimeout(state.suggestTimer);
-    const q = input.value.trim();
-    if (q.length < 2) {
-      if (state.here && !q) showHereSuggest();
-      else hideSuggest();
-      return;
-    }
-    state.suggestTimer = setTimeout(async () => {
-      try {
-        const hits = dedupeClientHits(await lookup(q));
-        if (state.focusId !== id) return;
-        if (!hits.length) return hideSuggest();
-        $("suggestPop").innerHTML = hits
-          .map((h, i) => {
-            const title = esc(h.name || h.label.split(",")[0]);
-            const sub = esc(h.label);
-            const tag = h.kind === "business" ? "Business" : "Australia";
-            return `<button type="button" data-i="${i}"><span class="ico"><svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor"><path d="M12 2a7 7 0 0 0-7 7c0 5 7 13 7 13s7-8 7-13a7 7 0 0 0-7-7zm0 9.5A2.5 2.5 0 1 1 12 6a2.5 2.5 0 0 1 0 5.5z"/></svg></span><span><strong>${title}</strong><small>${sub}<br>${tag}</small></span></button>`;
-          })
-          .join("");
-        $("suggestPop")._hits = hits;
-        $("suggestPop").classList.remove("hidden");
-        $("tripScreen").classList.add("suggest-open");
-        placeSuggest();
-      } catch (err) {
-        if (!err.cancelled) hideSuggest();
-      }
-    }, 220);
-  });
-  input.addEventListener("keydown", async (e) => {
-    if (e.key !== "Enter") return;
-    e.preventDefault();
-    const q = input.value.trim();
-    if (!q) return;
-    try {
-      const hits = await lookup(q);
-      if (hits[0]) await onSuggestPick(hits[0]);
-    } catch (err) {
-      if (!err.cancelled) toast(err.message);
-    }
-  });
+  }).join("");
 }
 
 function showHereSuggest() {
   const pins = readPins();
   const rows = [];
-  if (state.here) {
-    rows.push(
-      `<button type="button" data-me="1"><span class="ico">◎</span><span><strong>Your location</strong><small>${esc(
-        state.hereLabel,
-      )}</small></span></button>`,
-    );
-  }
-  const home = pins.home;
-  const work = pins.work;
-  if (home) {
-    rows.push(
-      `<button type="button" data-pin="home"><span class="ico">🏠</span><span><strong>Home</strong><small>${esc(
-        home.label,
-      )}</small></span></button>`,
-    );
-  }
-  if (work) {
-    rows.push(
-      `<button type="button" data-pin="work"><span class="ico">💼</span><span><strong>Work</strong><small>${esc(
-        work.label,
-      )}</small></span></button>`,
-    );
-  }
+  if (S.here) rows.push(`<button class="sug-row" data-me="1">
+    <span class="sug-ico"><svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor"><circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3"/></svg></span>
+    <span><span class="sug-name">Your location</span><span class="sug-addr">${esc(S.hereLabel)}</span></span>
+  </button>`);
+  if (pins.home) rows.push(`<button class="sug-row" data-pin="home">
+    <span class="sug-ico">🏠</span>
+    <span><span class="sug-name">Home</span><span class="sug-addr">${esc(pins.home.label)}</span></span>
+  </button>`);
+  if (pins.work) rows.push(`<button class="sug-row" data-pin="work">
+    <span class="sug-ico">💼</span>
+    <span><span class="sug-name">Work</span><span class="sug-addr">${esc(pins.work.label)}</span></span>
+  </button>`);
   if (!rows.length) return;
-  $("suggestPop").innerHTML = rows.join("");
-  $("suggestPop").classList.remove("hidden");
-  $("tripScreen").classList.add("suggest-open");
-  placeSuggest();
+  const box = $("suggestBox");
+  box.innerHTML = rows.join(""); box._hits = null;
+  box.classList.remove("hidden");
+  positionSuggest();
 }
 
-$("stopList").addEventListener("click", (e) => {
-  const btn = e.target.closest(".del-btn");
-  if (!btn || !state.trip) return;
-  const i = state.trip.stops.findIndex((s) => s.id === btn.dataset.id);
-  if (i < 0) return;
-  buzz();
-  const prev = JSON.parse(JSON.stringify(state.trip.stops));
-  if (state.trip.stops.length <= 2) {
-    state.trip.stops[i] = { id: uid(), query: "", label: "", lat: null, lng: null };
-  } else state.trip.stops.splice(i, 1);
-  syncStops(true);
-  scheduleSave();
-  scheduleRoute(false);
-  toast("Stop removed", () => {
-    state.trip.stops = prev;
-    syncStops(true);
-    scheduleSave();
-    scheduleRoute(false);
-  });
-});
+function applyHit(hit) {
+  const stop = S.trip?.stops.find(s=>s.id===S.focusId);
+  if (!stop) return;
+  stop.query=hit.label; stop.label=hit.label; stop.lat=hit.lat; stop.lng=hit.lng;
+  hideSuggest();
+  const input = $("stopList").querySelector(`input[data-id="${stop.id}"]`);
+  if (input) { input.value=hit.label; input.classList.remove("unresolved"); }
+  updateRowMeta(); scheduleSave(); scheduleRoute(false); buzz();
+}
 
-$("stopList").addEventListener(
-  "pointerdown",
-  (e) => {
-    const grip = e.target.closest(".grip");
-    if (!grip || !state.trip) return;
-    e.preventDefault();
-    const row = grip.closest(".stop-row");
-    const list = $("stopList");
-    row.classList.add("dragging");
-    const move = (ev) => {
-      const y = ev.clientY;
-      const others = [...list.querySelectorAll(".stop-row")].filter((r) => r !== row);
-      let placed = false;
-      for (const r of others) {
-        const b = r.getBoundingClientRect();
-        if (y < b.top + b.height / 2) {
-          list.insertBefore(row, r);
-          placed = true;
-          break;
-        }
-      }
-      if (!placed) list.appendChild(row);
-    };
-    const up = () => {
-      document.removeEventListener("pointermove", move);
-      document.removeEventListener("pointerup", up);
-      row.classList.remove("dragging");
-      const byId = Object.fromEntries(state.trip.stops.map((s) => [s.id, s]));
-      state.trip.stops = [...list.querySelectorAll(".stop-row")].map((r) => byId[r.dataset.id]).filter(Boolean);
-      updateRowMeta();
-      scheduleSave();
-      scheduleRoute(false);
-      buzz();
-    };
-    document.addEventListener("pointermove", move);
-    document.addEventListener("pointerup", up);
-  },
-  { passive: false },
-);
-
-$("suggestPop").addEventListener("click", async (e) => {
-  const btn = e.target.closest("button");
+$("suggestBox").addEventListener("click", async e => {
+  const btn = e.target.closest(".sug-row");
   if (!btn) return;
   if (btn.dataset.me) {
-    if (!state.here) return toast("Turn on Location to use GPS");
-    await onSuggestPick({ label: state.hereLabel, lat: state.here.lat, lng: state.here.lng });
-    return;
+    if (!S.here) return toast("Location unavailable");
+    applyHit({label:S.hereLabel,lat:S.here.lat,lng:S.here.lng}); return;
   }
   if (btn.dataset.pin) {
-    const hit = pinHit(btn.dataset.pin);
-    if (!hit) return toast("Set this in More → Places");
-    await onSuggestPick(hit);
-    return;
+    const h=pinHit(btn.dataset.pin);
+    if (!h) return toast("Set this in More first");
+    applyHit(h); return;
   }
-  const hit = ($("suggestPop")._hits || [])[Number(btn.dataset.i)];
-  if (hit) await onSuggestPick(hit);
+  const h = ($("suggestBox")._hits||[])[Number(btn.dataset.i)];
+  if (h) applyHit(h);
 });
 
+document.addEventListener("click", e => {
+  if (e.target.closest("#suggestBox")||e.target.closest(".stop-input")) return;
+  hideSuggest();
+});
+
+/* ─── stop rows ─── */
+function stopKind(i,n) {
+  if (i===0) return "is-origin";
+  if (i===n-1&&!S.trip?.roundtrip) return "is-dest";
+  return "";
+}
+
+function makeRow(s,i,n) {
+  const row = document.createElement("div");
+  row.className = `stop-row ${stopKind(i,n)}`.trim();
+  row.dataset.id = s.id;
+
+  const dotClasses = `stop-dot`;
+  row.innerHTML = `
+    <div class="stop-dot-col">
+      <div class="${dotClasses}">${i+1}</div>
+      <div class="stop-line"></div>
+    </div>
+    <div class="stop-input-col">
+      <input class="stop-input${s.query&&!Number.isFinite(s.lat)?" unresolved":""}"
+        data-id="${s.id}" value="${esc(s.query||s.label)}"
+        placeholder="Address or business"
+        autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false"
+        enterkeyhint="search" inputmode="search"/>
+      <div class="leg-meta"></div>
+    </div>
+    <button class="grip-btn" data-act="grip" data-id="${s.id}" aria-label="Reorder" touch-action="none">
+      <svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor" opacity=".35">
+        <circle cx="8" cy="6" r="1.5"/><circle cx="16" cy="6" r="1.5"/>
+        <circle cx="8" cy="12" r="1.5"/><circle cx="16" cy="12" r="1.5"/>
+        <circle cx="8" cy="18" r="1.5"/><circle cx="16" cy="18" r="1.5"/>
+      </svg>
+    </button>
+    <button class="del-btn" data-act="del" data-id="${s.id}" aria-label="Remove">
+      <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M18 6L6 18M6 6l12 12"/></svg>
+    </button>`;
+  bindStopInput(row.querySelector(".stop-input"));
+  return row;
+}
+
+function updateRowMeta() {
+  if (!S.trip) return;
+  const n = S.trip.stops.length;
+  [...$("stopList").children].forEach((row,i) => {
+    const s = S.trip.stops[i];
+    if (!s) return;
+    row.className = `stop-row ${stopKind(i,n)}${row.classList.contains("dragging")?" dragging":""}`.trim();
+    row.querySelector(".stop-dot").textContent = String(i+1);
+    const input = row.querySelector(".stop-input");
+    if (document.activeElement!==input) {
+      const val = s.query||s.label||"";
+      if (input.value!==val) input.value=val;
+    }
+    input.classList.toggle("unresolved", !!(input.value&&!Number.isFinite(s.lat)));
+    const leg = S.route?.legs?.[i-1];
+    row.querySelector(".leg-meta").textContent = i>0&&leg ? `${fmtDur(leg.durationS)} · ${fmtKm(leg.distanceM)}` : "";
+  });
+  updateSummary();
+  updateNav();
+}
+
+function syncStops(force) {
+  const list = $("stopList");
+  const trip = S.trip;
+  if (!trip) { list.innerHTML=""; return; }
+  const ids = trip.stops.map(s=>s.id);
+  const existing = [...list.children];
+  if (force || existing.map(r=>r.dataset.id).join()!==ids.join()) {
+    const map = new Map(existing.map(r=>[r.dataset.id,r]));
+    const next = [];
+    trip.stops.forEach((s,i)=>{
+      const row = map.get(s.id)||makeRow(s,i,trip.stops.length);
+      map.delete(s.id); next.push(row);
+    });
+    map.forEach(r=>r.remove());
+    next.forEach(r=>list.appendChild(r));
+  }
+  updateRowMeta();
+}
+
+/* ─── summary bar ─── */
+function updateSummary() {
+  const r = S.route;
+  const n = geocodedStops().length;
+  const title = $("summaryTime");
+  const sub   = $("summaryMeta");
+  const start = $("btnStart");
+
+  title.classList.toggle("loading", S.routing&&n>=2);
+
+  if (S.routing && n>=2) {
+    title.textContent = "Finding route…";
+    sub.textContent   = `${n} stops`;
+    start.disabled    = true;
+    return;
+  }
+  if (!r||n<2) {
+    title.textContent = n<2 ? "Add two places" : "No route yet";
+    sub.textContent   = `${filledStops().length} stops · no cap`;
+    start.disabled    = true;
+    return;
+  }
+  title.textContent = `${fmtDur(r.durationS)} · ${fmtKm(r.distanceM)}`;
+  sub.textContent   = `${S.trip.title||"Trip"}${S.trip.roundtrip?" · round trip":""}`;
+  start.disabled    = false;
+}
+
+/* ─── nav bar ─── */
+function updateNav() {
+  const bar = $("navBar");
+  if (!S.navigating) { bar.classList.add("hidden"); return; }
+  const pts = geocodedStops();
+  if (S.navI >= pts.length-1) {
+    $("navTitle").textContent = "Trip complete";
+    $("navSub").textContent   = "You've reached every stop";
+    $("btnNext").textContent  = "Done";
+    bar.classList.remove("hidden"); return;
+  }
+  const next = pts[S.navI+1];
+  const leg  = S.route?.legs?.[S.navI];
+  $("navTitle").textContent = `Stop ${S.navI+2} of ${pts.length}`;
+  $("navSub").textContent   = `${(next.label||next.query).split(",")[0]}${leg?" · "+fmtDur(leg.durationS):""}`;
+  $("btnNext").textContent  = "Go";
+  bar.classList.remove("hidden");
+}
+
+/* ─── bind inputs ─── */
+function bindStopInput(input) {
+  if (input.dataset.bound) return;
+  input.dataset.bound = "1";
+  const id = input.dataset.id;
+
+  input.addEventListener("focus", () => {
+    S.focusId = id;
+    setSnap("full");
+    if (S.here&&!input.value) showHereSuggest();
+    requestAnimationFrame(()=>positionSuggest());
+  });
+
+  input.addEventListener("input", () => {
+    const stop = S.trip?.stops.find(s=>s.id===id);
+    if (!stop) return;
+    stop.query=input.value; stop.lat=null; stop.lng=null; stop.label="";
+    input.classList.toggle("unresolved",!!input.value.trim());
+    clearTimeout(S.suggestTimer);
+    const q = input.value.trim();
+    if (q.length<2) { if(S.here&&!q) showHereSuggest(); else hideSuggest(); return; }
+    S.suggestTimer = setTimeout(async ()=>{
+      try {
+        const hits = dedupeHits(await lookup(q));
+        if (S.focusId!==id) return;
+        if (!hits.length) return hideSuggest();
+        const box = $("suggestBox");
+        box.innerHTML = renderSuggestRows(hits);
+        box._hits = hits;
+        box.classList.remove("hidden");
+        positionSuggest();
+      } catch(err) { if(!err.cancelled) hideSuggest(); }
+    }, 220);
+  });
+
+  input.addEventListener("keydown", async e => {
+    if (e.key!=="Enter") return;
+    e.preventDefault();
+    const q = input.value.trim();
+    if (!q) return;
+    try { const hits=await lookup(q); if(hits[0]) applyHit(hits[0]); }
+    catch(err) { if(!err.cancelled) toast(err.message); }
+  });
+}
+
+/* ─── stop list events ─── */
+$("stopList").addEventListener("click", e => {
+  const del = e.target.closest(".del-btn");
+  if (del&&S.trip) {
+    const i = S.trip.stops.findIndex(s=>s.id===del.dataset.id);
+    if (i<0) return;
+    buzz();
+    const prev = JSON.parse(JSON.stringify(S.trip.stops));
+    if (S.trip.stops.length<=2) S.trip.stops[i]={id:uid(),query:"",label:"",lat:null,lng:null};
+    else S.trip.stops.splice(i,1);
+    syncStops(true); scheduleSave(); scheduleRoute(false);
+    toast("Stop removed",()=>{ S.trip.stops=prev; syncStops(true); scheduleSave(); scheduleRoute(false); });
+  }
+});
+
+$("stopList").addEventListener("pointerdown", e => {
+  const grip = e.target.closest(".grip-btn");
+  if (!grip||!S.trip) return;
+  e.preventDefault();
+  const row  = grip.closest(".stop-row");
+  const list = $("stopList");
+  row.classList.add("dragging");
+  grip.setPointerCapture(e.pointerId);
+
+  const move = ev => {
+    const y = ev.clientY;
+    const others = [...list.querySelectorAll(".stop-row")].filter(r=>r!==row);
+    let placed = false;
+    for (const r of others) {
+      const b = r.getBoundingClientRect();
+      if (y < b.top+b.height/2) { list.insertBefore(row,r); placed=true; break; }
+    }
+    if (!placed) list.appendChild(row);
+  };
+  const up = () => {
+    grip.removeEventListener("pointermove",move);
+    grip.removeEventListener("pointerup",up);
+    row.classList.remove("dragging");
+    const byId = Object.fromEntries(S.trip.stops.map(s=>[s.id,s]));
+    S.trip.stops = [...list.querySelectorAll(".stop-row")].map(r=>byId[r.dataset.id]).filter(Boolean);
+    updateRowMeta(); scheduleSave(); scheduleRoute(false); buzz();
+  };
+  grip.addEventListener("pointermove",move);
+  grip.addEventListener("pointerup",up);
+}, {passive:false});
+
+/* ─── action bar ─── */
 $("btnAddStop").onclick = () => {
-  const stops = state.trip.stops;
-  const destLike = !state.trip.roundtrip && stops.length >= 2;
-  const neu = { id: uid(), query: "", label: "", lat: null, lng: null };
-  if (destLike) stops.splice(stops.length - 1, 0, neu);
-  else stops.push(neu);
-  syncStops(true);
-  scheduleSave();
-  setSnap("full");
-  const inputs = $("stopList").querySelectorAll("input");
-  (destLike ? inputs[inputs.length - 2] : inputs[inputs.length - 1])?.focus();
+  const stops = S.trip.stops;
+  const destLike = !S.trip.roundtrip&&stops.length>=2;
+  const neu = {id:uid(),query:"",label:"",lat:null,lng:null};
+  if (destLike) stops.splice(stops.length-1,0,neu); else stops.push(neu);
+  syncStops(true); scheduleSave(); setSnap("full");
+  const inputs = $("stopList").querySelectorAll(".stop-input");
+  (destLike?inputs[inputs.length-2]:inputs[inputs.length-1])?.focus();
 };
 
 $("btnPaste").onclick = () => openModal("Paste addresses", pasteBody());
 $("btnReverse").onclick = () => {
-  state.trip.stops.reverse();
-  syncStops(true);
-  scheduleSave();
-  scheduleRoute(false);
+  S.trip.stops.reverse(); syncStops(true); scheduleSave(); scheduleRoute(false);
   toast("Start and finish swapped");
 };
-$("btnOptimize").onclick = () => {
-  if (geocodedStops().length < 3) return toast("Add at least 3 places first");
-  $("btnOptimize").classList.add("busy");
+$("btnOptimise").onclick = () => {
+  if (geocodedStops().length<3) return toast("Add at least 3 places first");
+  $("btnOptimise").classList.add("loading");
   scheduleRoute(true);
 };
 $("btnShare").onclick = () => shareTrip();
-$("btnMore").onclick = () => openModal("More", moreBody());
-$("btnMap").onclick = () => {
-  if (state.snap === "full") {
-    document.activeElement?.blur();
-    hideSuggest();
-    setSnap("mid");
-    drawMap(true);
-  } else {
-    setSnap("full");
-    setTimeout(() => $("stopList").querySelector("input")?.focus(), 200);
-  }
-};
-$("btnBack").onclick = () => {
-  hideSuggest();
-  saveTrip();
-  state.navigating = false;
-  showList();
-};
-$("tripSearch").addEventListener("input", (e) => {
-  state.filter = e.target.value;
-  renderList();
-});
-$("btnNew").onclick = () => newTrip();
-$("btnEmptyNew").onclick = () => newTrip();
-$("tripList").onclick = (e) => {
-  const row = e.target.closest("[data-id]");
-  if (row) openTrip(row.dataset.id);
+$("btnMore").onclick   = () => openModal("More", moreBody());
+
+/* ─── map toggle ─── */
+$("btnMapToggle").onclick = () => {
+  if (S.snap==="full") { document.activeElement?.blur(); hideSuggest(); setSnap("mid"); drawMap(true); }
+  else { setSnap("full"); setTimeout(()=>$("stopList").querySelector(".stop-input")?.focus(),200); }
 };
 
-(function tripSwipeDelete() {
-  const list = $("tripList");
-  let sx = 0;
-  let sy = 0;
-  let row = null;
-  list.addEventListener(
-    "touchstart",
-    (e) => {
-      row = e.target.closest(".trip-row");
-      if (!row) return;
-      sx = e.changedTouches[0].clientX;
-      sy = e.changedTouches[0].clientY;
-    },
-    { passive: true },
-  );
-  list.addEventListener(
-    "touchend",
-    (e) => {
-      if (!row) return;
-      const dx = e.changedTouches[0].clientX - sx;
-      const dy = Math.abs(e.changedTouches[0].clientY - sy);
-      if (dx < -72 && dy < 48) {
-        const id = row.dataset.id;
-        const prev = (state.records || []).slice();
-        setRecords(prev.filter((t) => t.id !== id));
-        api(`/api/trips/${id}`, { method: "DELETE" }).catch(() => {});
-        renderList();
-        toast("Trip deleted", () => {
-          setRecords(prev);
-          renderList();
-        });
-      }
-      row = null;
-    },
-    { passive: true },
-  );
-})();
+/* ─── start / nav ─── */
 $("btnStart").onclick = () => {
-  state.navigating = true;
-  state.navI = 0;
-  updateNav();
-  drawMap(true);
-  goLeg();
+  S.navigating=true; S.navI=0; updateNav(); drawMap(true); goLeg();
 };
 $("btnNext").onclick = () => {
   const pts = geocodedStops();
-  if (state.navI >= pts.length - 1) {
-    state.navigating = false;
-    updateNav();
-    drawMap(true);
-    return;
-  }
-  state.navI += 1;
-  updateNav();
-  drawMap(true);
-  if (state.navI < pts.length - 1) goLeg();
+  if (S.navI>=pts.length-1) { S.navigating=false; updateNav(); drawMap(true); return; }
+  S.navI++; updateNav(); drawMap(true);
+  if (S.navI<pts.length-1) goLeg();
 };
+
+/* ─── back / locate ─── */
+$("btnBack").onclick = () => { hideSuggest(); saveTrip(); S.navigating=false; showList(); };
 $("btnLocate").onclick = () => {
-  if (!state.here) return toast("Location unavailable");
-  state.map?.setView([state.here.lat, state.here.lng], 15);
+  if (!S.here) return toast("Location unavailable");
+  S.map?.setView([S.here.lat,S.here.lng],15);
 };
-$("sheetBack").onclick = closeModal;
 
-function openModal(title, html) {
-  $("sheetTitle").textContent = title;
-  $("sheetBody").innerHTML = html;
-  $("sheet").classList.remove("hidden");
-}
-function closeModal() {
-  $("sheet").classList.add("hidden");
-}
+/* ─── search ─── */
+$("tripSearch").addEventListener("input",e=>{ S.filter=e.target.value; renderList(); });
+$("btnNew").onclick      = newTrip;
+$("btnEmptyNew").onclick = newTrip;
+$("continueCard").onclick = () => {};  /* will be overridden by renderContinue */
+$("tripList").addEventListener("click",e=>{
+  const row=e.target.closest("[data-id]");
+  if (row) openTrip(row.dataset.id);
+});
 
+/* ─── swipe-to-delete trips ─── */
+(()=>{
+  const list=$("tripList");
+  let sx=0,sy=0,row=null;
+  list.addEventListener("touchstart",e=>{row=e.target.closest(".trip-row"); if(row){sx=e.changedTouches[0].clientX;sy=e.changedTouches[0].clientY;}},{passive:true});
+  list.addEventListener("touchend",e=>{
+    if(!row)return;
+    const dx=e.changedTouches[0].clientX-sx, dy=Math.abs(e.changedTouches[0].clientY-sy);
+    if(dx<-72&&dy<48){
+      const id=row.dataset.id;
+      const prev=(S.records||[]).slice();
+      setRecords(prev.filter(t=>t.id!==id));
+      api(`/api/trips/${id}`,{method:"DELETE"}).catch(()=>{});
+      renderList();
+      toast("Trip deleted",()=>{setRecords(prev);renderList();});
+    }
+    row=null;
+  },{passive:true});
+})();
+
+/* ─── modal body builders ─── */
 function pasteBody() {
-  return `<div class="sheet-inner">
-    <p class="hint">One address or business per line. Up to 200 stops at once.</p>
-    <textarea id="pasteBox" placeholder="Bunnings Warehouse Geebung&#10;12 Queen St Brisbane&#10;Woolworths Townsville"></textarea>
-    <div style="display:flex;gap:8px;margin-top:14px">
-      <button type="button" class="btn primary" id="pasteGo" style="flex:1">Add stops</button>
-      <button type="button" class="chip" id="pasteCancel">Cancel</button>
+  return `<div class="modal-pad">
+    <p class="modal-hint">One address or business per line. Up to 200 stops at once.</p>
+    <textarea id="pasteBox" class="modal-textarea" placeholder="Bunnings Warehouse Geebung&#10;12 Queen St Brisbane&#10;Woolworths Townsville"></textarea>
+    <div class="modal-actions">
+      <button id="pasteGo" class="btn-primary" style="flex:1">Add stops</button>
+      <button id="pasteCancel" class="btn-secondary">Cancel</button>
     </div>
   </div>`;
 }
 
 function chk(on) {
-  return `<span class="btn-check${on ? " on" : ""}"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="#fff" stroke-width="2.5"><path d="M5 12l5 5L19 7"/></svg></span>`;
+  return `<span class="mrow-check">${on?`<svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="#fff" stroke-width="2.5"><path d="M4 12l5 5L20 7"/></svg>`:""}</span>`;
 }
 
 function moreBody() {
-  const t = state.trip;
+  const t    = S.trip;
   const pins = readPins();
+  const homeLabel = (pins.home?.label||"not set").split(",")[0];
+  const workLabel = (pins.work?.label||"not set").split(",")[0];
   return `
-  <label class="field">Trip name<input id="renameTitle" value="${esc(t.title || "")}" /></label>
-
-  <div class="sheet-section">
-    <button class="sheet-btn" data-more="star">${t.starred ? "★ Starred" : "Star this trip"}${chk(t.starred)}</button>
-    <button class="sheet-btn" data-more="round">Round trip${chk(t.roundtrip)}</button>
-    <button class="sheet-btn" data-more="ends">Keep start &amp; end when optimising${chk(t.keepEnds)}</button>
+  <div class="modal-field">
+    <label>Trip name</label>
+    <input id="renameTitle" value="${esc(t.title||"")}" placeholder="Untitled trip"/>
   </div>
-
-  <div class="sheet-section">
-    <button class="sheet-btn" data-more="tolls">Avoid tolls${chk(t.avoidTolls)}</button>
-    <button class="sheet-btn" data-more="ferries">Avoid ferries${chk(t.avoidFerries)}</button>
-    <button class="sheet-btn" data-more="refresh">Refresh route</button>
+  <div class="msec">
+    <button class="mrow" data-more="star">${t.starred?"★ Starred":"☆ Star this trip"}<span class="mrow-sub">${t.starred?"On":""}</span></button>
+    <button class="mrow" data-more="round">Round trip${chk(t.roundtrip)}</button>
+    <button class="mrow" data-more="ends">Keep start &amp; end when optimising${chk(t.keepEnds)}</button>
   </div>
-
-  <div class="sheet-section">
-    <button class="sheet-btn" data-more="home">Set Home <span style="color:var(--muted);font-size:14px">${esc((pins.home?.label || "not set").split(",")[0])}</span></button>
-    <button class="sheet-btn" data-more="work">Set Work <span style="color:var(--muted);font-size:14px">${esc((pins.work?.label || "not set").split(",")[0])}</span></button>
+  <div class="msec">
+    <button class="mrow" data-more="tolls">Avoid tolls${chk(t.avoidTolls)}</button>
+    <button class="mrow" data-more="ferries">Avoid ferries${chk(t.avoidFerries)}</button>
+    <button class="mrow" data-more="refresh">Refresh route</button>
   </div>
-
-  <div class="sheet-section">
-    <button class="sheet-btn" data-more="waze">Open in Waze</button>
-    <button class="sheet-btn" data-more="google">Open in Google Maps</button>
+  <div class="msec">
+    <button class="mrow" data-more="home">Set Home <span class="mrow-sub">${esc(homeLabel)}</span></button>
+    <button class="mrow" data-more="work">Set Work <span class="mrow-sub">${esc(workLabel)}</span></button>
   </div>
-
-  <div class="sheet-section">
-    <button class="sheet-btn" data-more="dup">Duplicate trip</button>
-    <button class="sheet-btn" data-more="clear">Clear all stops</button>
-    <button class="sheet-btn" data-more="export">Export backup</button>
-    <button class="sheet-btn" data-more="import">Import backup</button>
+  <div class="msec">
+    <button class="mrow" data-more="waze">Open in Waze</button>
+    <button class="mrow" data-more="google">Open in Google Maps</button>
   </div>
-
-  <div class="sheet-section">
-    <button class="sheet-btn bad" data-more="del">Delete trip</button>
+  <div class="msec">
+    <button class="mrow" data-more="dup">Duplicate trip</button>
+    <button class="mrow" data-more="clear">Clear all stops</button>
+    <button class="mrow" data-more="export">Export backup</button>
+    <button class="mrow" data-more="import">Import backup</button>
+  </div>
+  <div class="msec">
+    <button class="mrow danger" data-more="del">Delete trip</button>
   </div>`;
 }
 
-function shareTrip() {
-  const pts = geocodedStops();
-  if (pts.length < 2) return toast("Add a route first");
-  const lines = pts.map((s, i) => `${i + 1}. ${s.label || s.query}`);
-  const head = state.trip.title && state.trip.title !== "Untitled trip" ? state.trip.title : "Trip";
-  const stats = state.route ? `${fmtDur(state.route.durationS)} · ${fmtKm(state.route.distanceM)}` : "";
-  const sharePayload = {
-    title: head,
-    stops: pts.map((s) => ({ label: s.label || s.query, lat: s.lat, lng: s.lng })),
-  };
-  const imp = encodeURIComponent(JSON.stringify(sharePayload));
-  const link = imp.length < 1800 ? `${location.origin}${location.pathname}?import=${imp}` : "";
-  const text = `${head}\n${stats}\n\n${lines.join("\n")}${link ? `\n\n${link}` : ""}`;
-  if (navigator.share) {
-    navigator.share({ title: head, text, url: link || undefined }).catch(() => {});
-    return;
-  }
-  navigator.clipboard?.writeText(text).then(() => toast(link ? "Copied trip + link" : "Copied to clipboard"));
-}
-
-function importBackupFile(file) {
-  const reader = new FileReader();
-  reader.onload = () => {
-    try {
-      const data = JSON.parse(String(reader.result || "{}"));
-      const incoming = Array.isArray(data.trips) ? data.trips : data.stops ? [data] : [];
-      if (!incoming.length) return toast("No trips in file");
-      const normalized = incoming.map((t) => {
-        const trip = emptyTrip();
-        return {
-          ...trip,
-          ...t,
-          id: uid(),
-          stops: (t.stops || []).map((s) => ({
-            id: uid(),
-            query: s.label || s.query || "",
-            label: s.label || s.query || "",
-            lat: s.lat ?? null,
-            lng: s.lng ?? null,
-          })),
-          updatedAt: Date.now(),
-          createdAt: t.createdAt || Date.now(),
-        };
-      });
-      if (data.pins && typeof data.pins === "object") writePins({ ...readPins(), ...data.pins });
-      setRecords(mergeTrips(normalized, state.records || readLocal()));
-      renderList();
-      toast(`Imported ${normalized.length} trip${normalized.length === 1 ? "" : "s"}`);
-    } catch {
-      toast("Couldn’t read that file");
-    }
-  };
-  reader.readAsText(file);
-}
-
-function pickBackupFile() {
-  const input = document.createElement("input");
-  input.type = "file";
-  input.accept = "application/json,.json";
-  input.onchange = () => {
-    const file = input.files?.[0];
-    if (file) importBackupFile(file);
-  };
-  input.click();
-}
-
-function exportBackup() {
-  const blob = new Blob([JSON.stringify({ trips: state.records || readLocal(), pins: readPins() }, null, 2)], {
-    type: "application/json",
-  });
-  const a = document.createElement("a");
-  a.href = URL.createObjectURL(blob);
-  a.download = `trips-backup-${new Date().toISOString().slice(0, 10)}.json`;
-  a.click();
-  URL.revokeObjectURL(a.href);
-  toast("Backup saved");
-}
-
-$("sheetBody").addEventListener("click", (e) => {
-  if (e.target.id === "pasteCancel") return closeModal();
-  if (e.target.id === "pasteGo") return pasteAddresses();
+/* ─── modal events ─── */
+$("modalBody").addEventListener("click", e => {
+  if (e.target.id==="pasteCancel") return closeModal();
+  if (e.target.id==="pasteGo")     return pasteAddresses();
   const more = e.target.closest("[data-more]");
   if (!more) return;
   const act = more.dataset.more;
-  if (act === "star") {
-    state.trip.starred = !state.trip.starred;
-    closeModal();
-    scheduleSave();
-    renderList();
-    toast(state.trip.starred ? "Starred" : "Unstarred");
-  }
-  if (act === "tolls") {
-    state.trip.avoidTolls = !state.trip.avoidTolls;
-    closeModal();
-    scheduleSave();
-    scheduleRoute(false);
-  }
-  if (act === "ferries") {
-    state.trip.avoidFerries = !state.trip.avoidFerries;
-    closeModal();
-    scheduleSave();
-    scheduleRoute(false);
-  }
-  if (act === "refresh") {
-    closeModal();
-    scheduleRoute(false);
-    toast("Refreshing route…");
-  }
-  if (act === "clear") {
-    closeModal();
-    const prev = JSON.parse(JSON.stringify(state.trip.stops));
-    state.trip.stops = [
-      { id: uid(), query: "", label: "", lat: null, lng: null },
-      { id: uid(), query: "", label: "", lat: null, lng: null },
-    ];
-    syncStops(true);
-    scheduleSave();
-    scheduleRoute(false);
-    toast("Stops cleared", () => {
-      state.trip.stops = prev;
-      syncStops(true);
-      scheduleSave();
-      scheduleRoute(false);
-    });
-  }
-  if (act === "home" || act === "work") {
-    const pts = geocodedStops();
-    const last = filledStops().slice(-1)[0];
-    const src = pts.find((s) => s.label || s.query) || last;
-    if (!src?.lat) return toast("Pick a place on the map first");
-    setPin(act, { label: src.label || src.query, lat: src.lat, lng: src.lng });
-    closeModal();
-    toast(act === "home" ? "Home saved" : "Work saved");
-  }
-  if (act === "export") {
-    closeModal();
-    exportBackup();
-  }
-  if (act === "import") {
-    closeModal();
-    pickBackupFile();
-  }
-  if (act === "round") {
-    state.trip.roundtrip = !state.trip.roundtrip;
-    closeModal();
-    syncStops(true);
-    scheduleSave();
-    scheduleRoute(false);
-  }
-  if (act === "ends") {
-    state.trip.keepEnds = !state.trip.keepEnds;
-    closeModal();
-    toast(state.trip.keepEnds ? "Start and end stay put" : "Best overall order");
-    scheduleSave();
-  }
-  if (act === "dup") {
-    const copy = JSON.parse(JSON.stringify(state.trip));
-    copy.id = uid();
-    copy.title = `${copy.title || "Trip"} copy`;
-    copy.createdAt = Date.now();
-    copy.updatedAt = Date.now();
-    copy.stops = (copy.stops || []).map((s) => ({ ...s, id: uid() }));
-    setRecords([copy, ...(state.records || [])]);
-    closeModal();
-    openTrip(copy.id);
-    toast("Duplicated");
-  }
-  if (act === "waze") {
-    closeModal();
-    openExternal("waze");
-  }
-  if (act === "google") {
-    closeModal();
-    openExternal("google");
-  }
-  if (act === "del") {
-    const id = state.trip.id;
-    const prev = (state.records || readLocal()).slice();
-    setRecords(prev.filter((t) => t.id !== id));
-    api(`/api/trips/${id}`, { method: "DELETE" }).catch(() => {});
-    closeModal();
-    state.trip = null;
-    showList();
-    renderList();
-    toast("Trip deleted", () => {
-      setRecords(prev);
-      renderList();
-    });
-  }
-});
-$("sheetBody").addEventListener("input", (e) => {
-  if (e.target.id !== "renameTitle" || !state.trip) return;
-  state.trip.title = e.target.value;
-  scheduleSave();
-  updateEta();
+  const handlers = {
+    star()    { S.trip.starred=!S.trip.starred; closeModal(); scheduleSave(); renderList(); toast(S.trip.starred?"Starred":"Unstarred"); },
+    tolls()   { S.trip.avoidTolls=!S.trip.avoidTolls; closeModal(); scheduleSave(); scheduleRoute(false); },
+    ferries() { S.trip.avoidFerries=!S.trip.avoidFerries; closeModal(); scheduleSave(); scheduleRoute(false); },
+    refresh() { closeModal(); scheduleRoute(false); toast("Refreshing route…"); },
+    round()   { S.trip.roundtrip=!S.trip.roundtrip; closeModal(); syncStops(true); scheduleSave(); scheduleRoute(false); },
+    ends()    { S.trip.keepEnds=!S.trip.keepEnds; closeModal(); toast(S.trip.keepEnds?"Start and end stay put":"Best overall order"); scheduleSave(); },
+    clear()   {
+      closeModal();
+      const prev=JSON.parse(JSON.stringify(S.trip.stops));
+      S.trip.stops=[{id:uid(),query:"",label:"",lat:null,lng:null},{id:uid(),query:"",label:"",lat:null,lng:null}];
+      syncStops(true); scheduleSave(); scheduleRoute(false);
+      toast("Stops cleared",()=>{ S.trip.stops=prev; syncStops(true); scheduleSave(); scheduleRoute(false); });
+    },
+    home()    { const s=geocodedStops()[0]||filledStops()[0]; if(!s?.lat) return toast("Add a geocoded place first"); setPin("home",{label:s.label||s.query,lat:s.lat,lng:s.lng}); closeModal(); toast("Home saved"); },
+    work()    { const s=geocodedStops()[0]||filledStops()[0]; if(!s?.lat) return toast("Add a geocoded place first"); setPin("work",{label:s.label||s.query,lat:s.lat,lng:s.lng}); closeModal(); toast("Work saved"); },
+    export()  { closeModal(); exportBackup(); },
+    import()  { closeModal(); pickBackupFile(); },
+    dup()     { const c=JSON.parse(JSON.stringify(S.trip)); c.id=uid(); c.title=`${c.title||"Trip"} copy`; c.createdAt=c.updatedAt=Date.now(); c.stops=(c.stops||[]).map(s=>({...s,id:uid()})); setRecords([c,...(S.records||[])]); closeModal(); openTrip(c.id); toast("Duplicated"); },
+    waze()    { closeModal(); openExternal("waze"); },
+    google()  { closeModal(); openExternal("google"); },
+    del()     {
+      const id=S.trip.id, prev=(S.records||readLocal()).slice();
+      setRecords(prev.filter(t=>t.id!==id));
+      api(`/api/trips/${id}`,{method:"DELETE"}).catch(()=>{});
+      closeModal(); S.trip=null; showList(); renderList();
+      toast("Trip deleted",()=>{ setRecords(prev); renderList(); });
+    },
+  };
+  handlers[act]?.();
 });
 
+$("modalBody").addEventListener("input", e => {
+  if (e.target.id!=="renameTitle"||!S.trip) return;
+  S.trip.title=e.target.value; scheduleSave(); updateSummary();
+});
+
+/* ─── paste ─── */
 async function pasteAddresses() {
-  const lines = ($("pasteBox")?.value || "")
-    .split(/\r?\n/)
-    .map((s) => s.trim())
-    .filter(Boolean);
+  const lines=($("pasteBox")?.value||"").split(/\r?\n/).map(s=>s.trim()).filter(Boolean);
   if (!lines.length) return;
   closeModal();
-  toast(`Finding ${lines.length} addresses…`);
+  toast(`Finding ${lines.length} place${lines.length===1?"":"s"}…`);
   try {
-    const data = await api("/api/geocode", {
-      method: "POST",
-      timeout: 60000,
-      body: JSON.stringify({
-        lines,
-        lat: state.here?.lat ?? state.bias.lat,
-        lng: state.here?.lng ?? state.bias.lng,
-      }),
-    });
-    const built = (data.results || []).map((r) => ({
-      id: uid(),
-      query: r.hit?.label || r.query,
-      label: r.hit?.label || r.query,
-      lat: r.hit?.lat ?? null,
-      lng: r.hit?.lng ?? null,
-    }));
-    if (!filledStops().length) {
-      state.trip.stops = built.length >= 2 ? built : [...built, { id: uid(), query: "", label: "", lat: null, lng: null }];
-    } else if (state.trip.roundtrip) {
-      state.trip.stops.push(...built);
-    } else {
-      state.trip.stops.splice(Math.max(1, state.trip.stops.length - 1), 0, ...built);
-    }
-    const missed = built.filter((s) => !s.lat).length;
-    syncStops(true);
-    setSnap("mid");
-    scheduleSave();
-    scheduleRoute(false);
-    toast(missed ? `Added ${built.length}. ${missed} need a tap to fix.` : `Added ${built.length} stops`);
-  } catch (err) {
-    if (!err.cancelled) toast(err.message);
-  }
+    const data=await api("/api/geocode",{method:"POST",timeout:60000,body:JSON.stringify({lines,lat:S.here?.lat??S.bias.lat,lng:S.here?.lng??S.bias.lng})});
+    const built=(data.results||[]).map(r=>({id:uid(),query:r.hit?.label||r.query,label:r.hit?.label||r.query,lat:r.hit?.lat??null,lng:r.hit?.lng??null}));
+    if (!filledStops().length) { S.trip.stops=built.length>=2?built:[...built,{id:uid(),query:"",label:"",lat:null,lng:null}]; }
+    else if (S.trip.roundtrip) S.trip.stops.push(...built);
+    else S.trip.stops.splice(Math.max(1,S.trip.stops.length-1),0,...built);
+    const missed=built.filter(s=>!s.lat).length;
+    syncStops(true); setSnap("mid"); scheduleSave(); scheduleRoute(false);
+    toast(missed?`Added ${built.length}. ${missed} need a tap to fix.`:`Added ${built.length} stop${built.length===1?"":"s"}`);
+  } catch(err) { if(!err.cancelled) toast(err.message); }
 }
 
+/* ─── share ─── */
+function shareTrip() {
+  const pts=geocodedStops();
+  if (pts.length<2) return toast("Add a route first");
+  const lines=pts.map((s,i)=>`${i+1}. ${s.label||s.query}`);
+  const head=S.trip.title&&S.trip.title!=="Untitled trip"?S.trip.title:"Trip";
+  const stats=S.route?`${fmtDur(S.route.durationS)} · ${fmtKm(S.route.distanceM)}`:"";
+  const payload=encodeURIComponent(JSON.stringify({title:head,stops:pts.map(s=>({label:s.label||s.query,lat:s.lat,lng:s.lng}))}));
+  const link=payload.length<1800?`${location.origin}${location.pathname}?import=${payload}`:"";
+  const text=`${head}\n${stats}\n\n${lines.join("\n")}${link?`\n\n${link}`:""}`;
+  if (navigator.share) { navigator.share({title:head,text,url:link||undefined}).catch(()=>{}); return; }
+  navigator.clipboard?.writeText(text).then(()=>toast(link?"Copied trip + link":"Copied to clipboard"));
+}
+
+/* ─── export / import ─── */
+function exportBackup() {
+  const blob=new Blob([JSON.stringify({trips:S.records||readLocal(),pins:readPins()},null,2)],{type:"application/json"});
+  const a=document.createElement("a"); a.href=URL.createObjectURL(blob);
+  a.download=`trips-backup-${new Date().toISOString().slice(0,10)}.json`; a.click();
+  URL.revokeObjectURL(a.href); toast("Backup saved");
+}
+function importBackupFile(file) {
+  const reader=new FileReader();
+  reader.onload=()=>{
+    try {
+      const data=JSON.parse(String(reader.result||"{}"));
+      const incoming=Array.isArray(data.trips)?data.trips:data.stops?[data]:[];
+      if (!incoming.length) return toast("No trips in file");
+      const norm=incoming.map(t=>({...emptyTrip(),...t,id:uid(),stops:(t.stops||[]).map(s=>({id:uid(),query:s.label||s.query||"",label:s.label||s.query||"",lat:s.lat??null,lng:s.lng??null})),updatedAt:Date.now(),createdAt:t.createdAt||Date.now()}));
+      if (data.pins&&typeof data.pins==="object") writePins({...readPins(),...data.pins});
+      setRecords(mergeTrips(norm,S.records||readLocal())); renderList();
+      toast(`Imported ${norm.length} trip${norm.length===1?"":"s"}`);
+    } catch { toast("Couldn't read that file"); }
+  };
+  reader.readAsText(file);
+}
+function pickBackupFile() {
+  const input=document.createElement("input"); input.type="file"; input.accept="application/json,.json";
+  input.onchange=()=>{ if(input.files?.[0]) importBackupFile(input.files[0]); }; input.click();
+}
+
+/* ─── routing ─── */
 function scheduleRoute(optimize) {
-  clearTimeout(state.routeTimer);
-  state.routeTimer = setTimeout(() => routeNow(optimize), optimize ? 40 : 260);
+  clearTimeout(S.routeTimer);
+  S.routeTimer=setTimeout(()=>routeNow(optimize),optimize?40:260);
 }
-
 async function routeNow(optimize) {
-  const pts = geocodedStops();
-  const seq = ++state.routeSeq;
-  if (pts.length < 2) {
-    state.route = null;
-    state.routing = false;
-    drawMap(true);
-    updateRowMeta();
-    return;
+  const pts=geocodedStops();
+  const seq=++S.routeSeq;
+  if (pts.length<2) {
+    S.route=null; S.routing=false; drawMap(true); updateRowMeta(); return;
   }
-  state.routing = true;
-  updateEta();
+  S.routing=true; updateSummary();
   try {
-    const data = await api("/api/route", {
-      method: "POST",
-      timeout: 35000,
-      body: JSON.stringify({
-        points: pts.map((p) => ({ lat: p.lat, lng: p.lng })),
-        optimize,
-        roundtrip: state.trip.roundtrip,
-        keepEnds: state.trip.keepEnds !== false,
-        avoidTolls: !!state.trip.avoidTolls,
-        avoidFerries: !!state.trip.avoidFerries,
-      }),
-    });
-    if (seq !== state.routeSeq) return;
-    if (optimize && Array.isArray(data.order) && data.order.length === pts.length) {
-      const ids = pts.map((p) => p.id);
-      const byId = Object.fromEntries(state.trip.stops.map((s) => [s.id, s]));
-      const rest = state.trip.stops.filter((s) => !ids.includes(s.id));
-      state.trip.stops = [...data.order.map((i) => byId[ids[i]]), ...rest].filter(Boolean);
-      syncStops(true);
-      toast("Reordered for a shorter drive");
+    const data=await api("/api/route",{method:"POST",timeout:35000,body:JSON.stringify({
+      points:pts.map(p=>({lat:p.lat,lng:p.lng})),
+      optimize, roundtrip:S.trip.roundtrip, keepEnds:S.trip.keepEnds!==false,
+      avoidTolls:!!S.trip.avoidTolls, avoidFerries:!!S.trip.avoidFerries,
+    })});
+    if (seq!==S.routeSeq) return;
+    if (optimize&&Array.isArray(data.order)&&data.order.length===pts.length) {
+      const ids=pts.map(p=>p.id);
+      const byId=Object.fromEntries(S.trip.stops.map(s=>[s.id,s]));
+      const rest=S.trip.stops.filter(s=>!ids.includes(s.id));
+      S.trip.stops=[...data.order.map(i=>byId[ids[i]]),...rest].filter(Boolean);
+      syncStops(true); toast("Reordered for a shorter drive");
     }
-    state.route = data;
-    state.trip.distanceM = data.distanceM;
-    state.trip.durationS = data.durationS;
-    drawMap(true);
-    updateRowMeta();
-    scheduleSave();
-  } catch (err) {
-    if (seq !== state.routeSeq || err.cancelled) return;
+    S.route=data; S.trip.distanceM=data.distanceM; S.trip.durationS=data.durationS;
+    drawMap(true); updateRowMeta(); scheduleSave();
+  } catch(err) {
+    if (seq!==S.routeSeq||err.cancelled) return;
     toast(err.message);
   } finally {
-    if (seq === state.routeSeq) {
-      state.routing = false;
-      $("btnOptimize").classList.remove("busy");
-      updateEta();
+    if (seq===S.routeSeq) {
+      S.routing=false;
+      $("btnOptimise").classList.remove("loading");
+      updateSummary();
     }
   }
 }
 
+/* ─── map ─── */
 function ensureMap() {
-  if (state.map) return;
-  state.map = L.map("map", { zoomControl: false, attributionControl: false, tap: false }).setView(
-    [state.bias.lat, state.bias.lng],
-    11,
-  );
-  L.tileLayer("https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png", { maxZoom: 20 }).addTo(
-    state.map,
-  );
+  if (S.map) return;
+  S.map=L.map("map",{zoomControl:false,attributionControl:false,tap:false}).setView([S.bias.lat,S.bias.lng],11);
+  L.tileLayer("https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png",{maxZoom:20}).addTo(S.map);
 }
-
 function mapPad() {
-  const h = $("tripScreen").classList.contains("hidden") ? 24 : $("plannerSheet").offsetHeight || 220;
-  return { paddingTopLeft: [16, 68], paddingBottomRight: [16, h + 10] };
+  const h=$("tripScreen").classList.contains("hidden")?24:$("sheet").offsetHeight||200;
+  return {paddingTopLeft:[16,64],paddingBottomRight:[16,h+10]};
 }
-
 function drawMap(fit) {
   ensureMap();
-  state.markers.forEach((m) => m.remove());
-  state.markers = [];
-  if (state.line) {
-    state.line.remove();
-    state.line = null;
-  }
-  if (state.hereDot) {
-    state.hereDot.remove();
-    state.hereDot = null;
-  }
-  const pts = geocodedStops();
-  pts.forEach((s, i) => {
-    const last = i === pts.length - 1 && !state.trip?.roundtrip;
-    const active = state.navigating && i === Math.min(state.navI + 1, pts.length - 1);
-    const cls = `${i === 0 ? "origin" : last ? "dest" : ""} ${active ? "active" : ""}`;
-    const icon = L.divIcon({
-      className: "",
-      html: `<div class="num-marker ${cls}">${i + 1}</div>`,
-      iconSize: [26, 26],
-      iconAnchor: [13, 13],
-    });
-    const mk = L.marker([s.lat, s.lng], { icon }).addTo(state.map);
-    mk.on("click", () => {
-      state.focusId = s.id;
-      setSnap("full");
-      const input = $("stopList").querySelector(`input[data-id="${s.id}"]`);
-      input?.scrollIntoView({ block: "center" });
-      input?.focus();
-    });
-    state.markers.push(mk);
+  S.markers.forEach(m=>m.remove()); S.markers=[];
+  if (S.line) { S.line.remove(); S.line=null; }
+  if (S.hereDot) { S.hereDot.remove(); S.hereDot=null; }
+  const pts=geocodedStops();
+  pts.forEach((s,i) => {
+    const last=i===pts.length-1&&!S.trip?.roundtrip;
+    const active=S.navigating&&i===Math.min(S.navI+1,pts.length-1);
+    const cls=`map-pin${i===0?" pin-origin":last?" pin-dest":""}${active?" pin-active":""}`;
+    const icon=L.divIcon({className:"",html:`<div class="${cls}">${i+1}</div>`,iconSize:[28,28],iconAnchor:[14,14]});
+    const mk=L.marker([s.lat,s.lng],{icon}).addTo(S.map);
+    mk.on("click",()=>{ S.focusId=s.id; setSnap("full"); const inp=$("stopList").querySelector(`input[data-id="${s.id}"]`); inp?.scrollIntoView({block:"center"}); inp?.focus(); });
+    S.markers.push(mk);
   });
-  if (state.here) {
-    state.hereDot = L.circleMarker([state.here.lat, state.here.lng], {
-      radius: 6,
-      color: "#fff",
-      weight: 2,
-      fillColor: "#1a73e8",
-      fillOpacity: 1,
-    }).addTo(state.map);
+  if (S.here) {
+    S.hereDot=L.circleMarker([S.here.lat,S.here.lng],{radius:7,color:"#fff",weight:2.5,fillColor:"#1A73E8",fillOpacity:1}).addTo(S.map);
   }
   if (!fit) return;
-  const pad = mapPad();
+  const pad=mapPad();
   try {
-    if (state.route?.geometry?.length) {
-      state.line = L.polyline(state.route.geometry, { color: "#1a73e8", weight: 5, opacity: 0.94 }).addTo(state.map);
-      state.map.fitBounds(state.line.getBounds(), pad);
-    } else if (pts.length === 1) state.map.setView([pts[0].lat, pts[0].lng], 14);
-    else if (pts.length > 1) state.map.fitBounds(L.latLngBounds(pts.map((p) => [p.lat, p.lng])), pad);
-  } catch {
-    /* invalid bounds */
-  }
+    if (S.route?.geometry?.length) {
+      S.line=L.polyline(S.route.geometry,{color:"#1A73E8",weight:5,opacity:.94}).addTo(S.map);
+      S.map.fitBounds(S.line.getBounds(),pad);
+    } else if (pts.length===1) S.map.setView([pts[0].lat,pts[0].lng],14);
+    else if (pts.length>1) S.map.fitBounds(L.latLngBounds(pts.map(p=>[p.lat,p.lng])),pad);
+  } catch {}
 }
 
+/* ─── external nav ─── */
 function mapsQuery(s) {
-  if (Number.isFinite(s.lat) && Number.isFinite(s.lng)) return `${s.lat},${s.lng}`;
-  return encodeURIComponent(s.label || s.query || "");
+  return Number.isFinite(s.lat)&&Number.isFinite(s.lng)?`${s.lat},${s.lng}`:encodeURIComponent(s.label||s.query||"");
 }
-
 function goLeg() {
-  const pts = geocodedStops();
-  if (state.navI >= pts.length - 1) return;
-  const a = pts[state.navI];
-  const b = pts[state.navI + 1];
-  location.href = `https://waze.com/ul?ll=${b.lat},${b.lng}&navigate=yes`;
+  const pts=geocodedStops();
+  if (S.navI>=pts.length-1) return;
+  const b=pts[S.navI+1];
+  location.href=`https://waze.com/ul?ll=${b.lat},${b.lng}&navigate=yes`;
 }
-
 function openExternal(kind) {
-  const pts = geocodedStops();
-  if (pts.length < 2) return toast("Need a route first");
-  if (kind === "waze") {
-    const dest = pts[pts.length - 1];
-    location.href = `https://waze.com/ul?ll=${dest.lat},${dest.lng}&navigate=yes`;
-    return;
-  }
-  const u = new URL("https://www.google.com/maps/dir/");
-  u.searchParams.set("api", "1");
-  u.searchParams.set("origin", mapsQuery(pts[0]));
-  u.searchParams.set("destination", mapsQuery(pts[pts.length - 1]));
-  u.searchParams.set("travelmode", "driving");
-  const mid = pts
-    .slice(1, -1)
-    .slice(0, 8)
-    .map((p) => mapsQuery(p))
-    .join("|");
-  if (mid) u.searchParams.set("waypoints", mid);
-  location.href = u.toString();
+  const pts=geocodedStops();
+  if (pts.length<2) return toast("Need a route first");
+  if (kind==="waze") { const d=pts[pts.length-1]; location.href=`https://waze.com/ul?ll=${d.lat},${d.lng}&navigate=yes`; return; }
+  const u=new URL("https://www.google.com/maps/dir/");
+  u.searchParams.set("api","1"); u.searchParams.set("origin",mapsQuery(pts[0]));
+  u.searchParams.set("destination",mapsQuery(pts[pts.length-1])); u.searchParams.set("travelmode","driving");
+  const mid=pts.slice(1,-1).slice(0,8).map(p=>mapsQuery(p)).join("|");
+  if (mid) u.searchParams.set("waypoints",mid);
+  location.href=u.toString();
 }
 
-(function sheetDrag() {
-  const grab = $("sheetGrab");
-  const sheet = $("plannerSheet");
+/* ─── sheet drag ─── */
+(()=>{
+  const handle=$("sheetHandle");
+  const sheet=$("sheet");
   let startY, startH;
-  grab.addEventListener("pointerdown", (e) => {
-    startY = e.clientY;
-    startH = sheet.getBoundingClientRect().height;
-    sheet.classList.add("dragging-sheet");
-    grab.setPointerCapture(e.pointerId);
-  }, { passive: true });
-  grab.addEventListener("pointermove", (e) => {
-    if (startY == null) return;
-    const next = Math.min(window.innerHeight - 60, Math.max(160, startH + (startY - e.clientY)));
-    sheet.style.height = `${next}px`;
-  }, { passive: true });
-  grab.addEventListener("pointerup", (e) => {
-    if (startY == null) return;
-    const h = startH + (startY - e.clientY);
-    sheet.style.height = "";
-    sheet.classList.remove("dragging-sheet");
-    const max = window.innerHeight;
-    if (h < max * 0.28) setSnap("collapsed");
-    else if (h > max * 0.68) setSnap("full");
+  handle.addEventListener("pointerdown",e=>{ startY=e.clientY; startH=sheet.getBoundingClientRect().height; sheet.classList.add("no-transition"); handle.setPointerCapture(e.pointerId); },{passive:true});
+  handle.addEventListener("pointermove",e=>{ if(startY==null)return; const next=Math.min(window.innerHeight-56,Math.max(160,startH+(startY-e.clientY))); sheet.style.height=`${next}px`; },{passive:true});
+  handle.addEventListener("pointerup",e=>{
+    if(startY==null)return;
+    const h=startH+(startY-e.clientY);
+    sheet.style.height=""; sheet.classList.remove("no-transition");
+    const max=window.innerHeight;
+    if(h<max*0.27) setSnap("collapsed");
+    else if(h>max*0.68) setSnap("full");
     else setSnap("mid");
-    startY = null;
-  }, { passive: true });
+    startY=null;
+  },{passive:true});
 })();
 
-document.addEventListener("click", (e) => {
-  if (e.target.closest("#suggestPop") || e.target.closest(".stop-row input")) return;
-  hideSuggest();
-});
-
+/* ─── keyboard / viewport ─── */
 if (window.visualViewport) {
-  const pinKb = () => {
-    const vv = window.visualViewport;
-    const kb = Math.max(0, window.innerHeight - vv.height - vv.offsetTop);
-    document.documentElement.style.setProperty("--kb", `${kb > 48 ? kb : 0}px`);
-    if (!$("suggestPop").classList.contains("hidden")) placeSuggest();
+  const pinKb=()=>{
+    const v=window.visualViewport;
+    const kb=Math.max(0,window.innerHeight-v.height-v.offsetTop);
+    document.documentElement.style.setProperty("--kb",`${kb>48?kb:0}px`);
+    if (!$("suggestBox").classList.contains("hidden")) positionSuggest();
   };
-  window.visualViewport.addEventListener("resize", pinKb);
-  window.visualViewport.addEventListener("scroll", pinKb);
+  window.visualViewport.addEventListener("resize",pinKb);
+  window.visualViewport.addEventListener("scroll",pinKb);
 }
 
+/* ─── geolocation ─── */
 function locate() {
   if (!navigator.geolocation) return;
-  navigator.geolocation.watchPosition(
-    async (pos) => {
-      state.here = { lat: pos.coords.latitude, lng: pos.coords.longitude };
-      state.bias = { ...state.here };
-      if (!state.hereLabel || state.hereLabel === "Your location") {
-        try {
-          const data = await api(`/api/reverse?lat=${state.here.lat}&lon=${state.here.lng}`, { timeout: 8000 });
-          if (data.hit?.label) state.hereLabel = data.hit.label;
-        } catch {
-          /* keep default */
-        }
-      }
-    },
-    () => {},
-    { enableHighAccuracy: true, maximumAge: 15000, timeout: 12000 },
-  );
+  navigator.geolocation.watchPosition(async pos => {
+    S.here={lat:pos.coords.latitude,lng:pos.coords.longitude};
+    S.bias={...S.here};
+    if (!S.hereLabel||S.hereLabel==="Your location") {
+      try { const d=await api(`/api/reverse?lat=${S.here.lat}&lon=${S.here.lng}`,{timeout:8000}); if(d.hit?.label) S.hereLabel=d.hit.label; } catch {}
+    }
+  },()=>{},{enableHighAccuracy:true,maximumAge:15000,timeout:12000});
 }
 
-ensureMap();
-locate();
+/* ─── online/offline ─── */
+window.addEventListener("online",  ()=>$("offlineBanner").classList.add("hidden"));
+window.addEventListener("offline", ()=>$("offlineBanner").classList.remove("hidden"));
+if (!navigator.onLine) $("offlineBanner").classList.remove("hidden");
 
+/* ─── URL import ─── */
 function importTripFromUrl() {
-  const imp = new URLSearchParams(location.search).get("import");
+  const imp=new URLSearchParams(location.search).get("import");
   if (!imp) return false;
   try {
-    const raw = JSON.parse(decodeURIComponent(imp));
-    const trip = emptyTrip();
-    trip.title = raw.title || "Imported trip";
-    trip.stops = (raw.stops || []).map((s) => ({
-      id: uid(),
-      query: s.label || s.query || "",
-      label: s.label || s.query || "",
-      lat: s.lat ?? null,
-      lng: s.lng ?? null,
-    }));
-    if (trip.stops.length < 2) {
-      trip.stops.push({ id: uid(), query: "", label: "", lat: null, lng: null });
-    }
-    setRecords([trip, ...(state.records || [])]);
-    history.replaceState({}, "", location.pathname);
-    openTrip(trip.id);
-    toast("Trip imported");
-    return true;
-  } catch {
-    return false;
-  }
+    const raw=JSON.parse(decodeURIComponent(imp));
+    const trip=emptyTrip();
+    trip.title=raw.title||"Imported trip";
+    trip.stops=(raw.stops||[]).map(s=>({id:uid(),query:s.label||s.query||"",label:s.label||s.query||"",lat:s.lat??null,lng:s.lng??null}));
+    if (trip.stops.length<2) trip.stops.push({id:uid(),query:"",label:"",lat:null,lng:null});
+    setRecords([trip,...(S.records||[])]);
+    history.replaceState({},"",location.pathname);
+    openTrip(trip.id); toast("Trip imported"); return true;
+  } catch { return false; }
 }
 
-window.addEventListener("online", () => $("netBanner").classList.add("hidden"));
-window.addEventListener("offline", () => $("netBanner").classList.remove("hidden"));
-if (!navigator.onLine) $("netBanner").classList.remove("hidden");
-
-loadTrips().then(() => {
-  if (!importTripFromUrl()) renderContinue();
-}).catch(() => {});
+/* ─── boot ─── */
+ensureMap();
+locate();
+loadTrips().then(()=>{ if(!importTripFromUrl()) renderContinue(); }).catch(()=>{});

@@ -1,124 +1,149 @@
 <!doctype html>
 <html lang="en">
 <head>
-  <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, maximum-scale=1, user-scalable=no" />
-  <meta name="apple-mobile-web-app-capable" content="yes" />
-  <meta name="mobile-web-app-capable" content="yes" />
-  <meta name="apple-mobile-web-app-status-bar-style" content="default" />
-  <meta name="apple-mobile-web-app-title" content="Trips" />
-  <meta name="theme-color" content="#F2F2F7" media="(prefers-color-scheme: light)" />
-  <meta name="theme-color" content="#1C1C1E" media="(prefers-color-scheme: dark)" />
-  <meta name="color-scheme" content="light dark" />
-  <link rel="manifest" href="manifest.webmanifest" />
-  <link rel="apple-touch-icon" href="icon.svg" />
-  <link rel="icon" href="icon.svg" />
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,maximum-scale=1,user-scalable=no"/>
+  <meta name="apple-mobile-web-app-capable" content="yes"/>
+  <meta name="mobile-web-app-capable" content="yes"/>
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent"/>
+  <meta name="apple-mobile-web-app-title" content="Trips"/>
+  <meta name="theme-color" content="#ffffff" media="(prefers-color-scheme:light)"/>
+  <meta name="theme-color" content="#111113" media="(prefers-color-scheme:dark)"/>
+  <meta name="color-scheme" content="light dark"/>
+  <link rel="manifest" href="manifest.webmanifest"/>
+  <link rel="apple-touch-icon" href="icon.svg"/>
+  <link rel="icon" href="icon.svg"/>
   <title>Trips</title>
-  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
-  <link rel="stylesheet" href="styles.css?v=13" />
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
+  <link rel="stylesheet" href="styles.css?v=14"/>
 </head>
 <body>
 
-  <div id="map"></div>
+<div id="map"></div>
 
-  <!-- ── Trip list ── -->
-  <section id="listScreen" class="screen list">
-    <header class="page-head">
-      <div>
-        <p class="kicker">Maps</p>
-        <h1>Trips</h1>
+<!-- ═══════════════════════════════════════
+     TRIP LIST SCREEN
+═══════════════════════════════════════ -->
+<section id="listScreen" class="screen-list">
+  <header class="list-header">
+    <div class="list-title">
+      <p class="eyebrow">Maps</p>
+      <h1>Trips</h1>
+    </div>
+    <button id="btnNew" class="fab-new" aria-label="New trip">
+      <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>
+    </button>
+  </header>
+
+  <div class="search-wrap">
+    <svg class="search-icon" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3-3"/></svg>
+    <input id="tripSearch" type="search" placeholder="Search trips" enterkeyhint="search"/>
+  </div>
+
+  <div id="offlineBanner" class="offline-banner hidden">
+    <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M1 1l22 22M16.72 11.06A10.94 10.94 0 0 1 19 12.55M5 12.55a10.94 10.94 0 0 1 5.17-2.39M10.71 5.05A16 16 0 0 1 22.56 9M1.42 9a15.91 15.91 0 0 1 4.7-2.88M8.53 16.11a6 6 0 0 1 6.95 0M12 20h.01"/></svg>
+    Offline — trips saved on this device
+  </div>
+
+  <button id="continueCard" class="continue-card hidden">
+    <div class="continue-icon">
+      <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><polygon points="5 3 19 12 5 21 5 3"/></svg>
+    </div>
+    <div class="continue-text">
+      <strong id="continueTitle">Continue trip</strong>
+      <span id="continueSub"></span>
+    </div>
+    <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" style="color:var(--muted);flex-shrink:0"><path d="M9 18l6-6-6-6"/></svg>
+  </button>
+
+  <div id="tripList" class="trip-list"></div>
+
+  <div id="emptyState" class="empty-state">
+    <div class="empty-icon">
+      <svg viewBox="0 0 48 48" width="48" height="48" fill="none"><circle cx="24" cy="24" r="22" fill="rgba(26,115,232,.1)"/><path d="M24 12c-5.5 0-10 4.5-10 10 0 7.5 10 18 10 18s10-10.5 10-18c0-5.5-4.5-10-10-10zm0 13.5a3.5 3.5 0 1 1 0-7 3.5 3.5 0 0 1 0 7z" fill="#1A73E8"/></svg>
+    </div>
+    <h2>No trips yet</h2>
+    <p>Add addresses, optimise your route,<br>and navigate stop by stop.</p>
+    <button id="btnEmptyNew" class="btn-primary">Start a trip</button>
+  </div>
+</section>
+
+<!-- ═══════════════════════════════════════
+     PLANNER SCREEN
+═══════════════════════════════════════ -->
+<section id="tripScreen" class="screen-planner hidden">
+  <div class="map-controls">
+    <button id="btnBack" class="map-btn" aria-label="Back">
+      <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 12H5M12 5l-7 7 7 7"/></svg>
+    </button>
+    <button id="btnLocate" class="map-btn" aria-label="My location">
+      <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3"/></svg>
+    </button>
+  </div>
+
+  <div id="suggestBox" class="suggest-box hidden"></div>
+
+  <div id="sheet" class="sheet snap-mid">
+    <div id="sheetHandle" class="sheet-handle"><span></span></div>
+
+    <!-- summary row -->
+    <div class="summary-row">
+      <div class="summary-text">
+        <strong id="summaryTime">Add two places</strong>
+        <span id="summaryMeta">Unlimited stops · no cap</span>
       </div>
-      <button id="btnNew" class="icon-fab" aria-label="New trip">
-        <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="#fff" stroke-width="2.5"><path d="M12 5v14M5 12h14"/></svg>
+      <button id="btnMapToggle" class="pill-btn">
+        <svg id="mapToggleIcon" viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M1 6l7-3 8 3 7-3v15l-7 3-8-3-7 3V6z"/><path d="M8 3v15M16 6v15"/></svg>
+        <span id="mapToggleLabel">Map</span>
       </button>
-    </header>
-    <div class="search-row">
-      <svg class="search-ico" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3-3"/></svg>
-      <input id="tripSearch" type="search" placeholder="Search trips" enterkeyhint="search" />
+      <button id="btnStart" class="btn-start" disabled>Start</button>
     </div>
-    <div id="netBanner" class="net-banner hidden">You're offline — trips still saved on this phone.</div>
-    <button id="continueCard" class="continue hidden">
-      <span class="continue-icon">
-        <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 22s-8-6-8-12a8 8 0 1 1 16 0c0 6-8 12-8 12z"/><circle cx="12" cy="10" r="3"/></svg>
-      </span>
-      <span id="continueText"><strong>Continue trip</strong><span id="continueSub"></span></span>
-    </button>
-    <div id="tripList" class="trip-list"></div>
-    <div id="tripEmpty" class="empty-hero">
-      <div class="empty-art" aria-hidden="true">
-        <svg viewBox="0 0 64 64" width="60" height="60"><path d="M32 8c-9 0-16 7-16 16 0 12 16 28 16 28S48 36 48 24c0-9-7-16-16-16zm0 22a6 6 0 1 1 0-12 6 6 0 0 1 0 12z" fill="#007AFF" opacity=".15"/><path d="M32 10c-7.7 0-14 6.3-14 14 0 10 14 26 14 26S46 34 46 24c0-7.7-6.3-14-14-14zm0 20a6 6 0 1 1 0-12 6 6 0 0 1 0 12z" fill="#007AFF"/></svg>
+
+    <!-- navigation bar (hidden unless navigating) -->
+    <div id="navBar" class="nav-bar hidden">
+      <div class="nav-info">
+        <strong id="navTitle">Next stop</strong>
+        <span id="navSub"></span>
       </div>
-      <h2>Plan a trip</h2>
-      <p>Add as many stops as you need. Autocomplete, optimise the drive, and come back any time.</p>
-      <button id="btnEmptyNew" class="btn primary">New trip</button>
+      <button id="btnNext" class="btn-go">Go</button>
     </div>
-  </section>
 
-  <!-- ── Trip planner ── -->
-  <section id="tripScreen" class="screen trip hidden">
-    <button id="btnBack" class="fab back" aria-label="Back to trips">
-      <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M15 19l-7-7 7-7"/></svg>
-    </button>
-    <button id="btnLocate" class="fab locate" aria-label="My location">
-      <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3"/></svg>
-    </button>
+    <!-- stop list -->
+    <div id="stopList" class="stop-list"></div>
 
-    <div id="suggestPop" class="suggest-pop hidden"></div>
-
-    <div id="plannerSheet" class="planner snap-mid">
-      <div id="sheetGrab" class="grab"><span></span></div>
-
-      <div class="eta-row">
-        <div class="eta">
-          <strong id="etaMain">Add two places</strong>
-          <span id="etaSub">Unlimited stops</span>
-        </div>
-        <button id="btnMap" class="btn-map" aria-label="Toggle map preview">
-          <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 6l7-3 8 3 7-3v15l-7 3-8-3-7 3V6z"/><path d="M8 3v15M16 6v15"/></svg>
-          Map
-        </button>
-        <button id="btnStart" class="btn primary small" disabled>Start</button>
-      </div>
-
-      <div id="navBar" class="nav-bar hidden">
-        <div style="flex:1;min-width:0">
-          <strong id="navTitle">Next stop</strong>
-          <span id="navSub"></span>
-        </div>
-        <button id="btnNext" class="btn primary small">Go</button>
-      </div>
-
-      <div id="stopList" class="stop-list"></div>
-
-      <div class="plan-actions">
-        <button id="btnAddStop" class="chip">+ Stop</button>
-        <button id="btnPaste"   class="chip">Paste list</button>
-        <button id="btnReverse" class="chip">Reverse</button>
-        <button id="btnOptimize" class="chip">Optimise</button>
-        <button id="btnShare"   class="chip">Share</button>
-        <button id="btnMore"    class="chip">More…</button>
-      </div>
-      <p class="map-credit">Map © OpenStreetMap contributors</p>
-    </div>
-  </section>
-
-  <!-- ── Bottom modal sheet ── -->
-  <div id="sheet" class="modal hidden" aria-hidden="true">
-    <div class="sheet-back" id="sheetBack"></div>
-    <div class="sheet-panel">
-      <div class="sheet-grab"></div>
-      <h2 id="sheetTitle"></h2>
-      <div id="sheetBody"></div>
+    <!-- action row -->
+    <div class="action-row">
+      <button id="btnAddStop"  class="action-chip">+ Stop</button>
+      <button id="btnPaste"    class="action-chip">Paste</button>
+      <button id="btnReverse"  class="action-chip">Reverse</button>
+      <button id="btnOptimise" class="action-chip">Optimise</button>
+      <button id="btnShare"    class="action-chip">Share</button>
+      <button id="btnMore"     class="action-chip">More</button>
     </div>
   </div>
+</section>
 
-  <!-- ── Toast ── -->
-  <div id="toast" class="toast hidden">
-    <span id="toastMsg"></span>
-    <button id="toastAct" class="toast-act hidden">Undo</button>
+<!-- ═══════════════════════════════════════
+     BOTTOM MODAL
+═══════════════════════════════════════ -->
+<div id="modal" class="modal hidden">
+  <div id="modalBack" class="modal-back"></div>
+  <div class="modal-sheet">
+    <div class="modal-handle"></div>
+    <h2 id="modalTitle"></h2>
+    <div id="modalBody"></div>
   </div>
+</div>
 
-  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-  <script src="app.js?v=13"></script>
+<!-- ═══════════════════════════════════════
+     TOAST
+═══════════════════════════════════════ -->
+<div id="toast" class="toast hidden">
+  <span id="toastMsg"></span>
+  <button id="toastUndo" class="toast-undo hidden">Undo</button>
+</div>
+
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script src="app.js?v=14"></script>
 </body>
 </html>
