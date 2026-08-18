@@ -86,42 +86,26 @@ input,textarea { outline:none; border:none; -webkit-appearance:none; background:
 .map-pin.pin-active { box-shadow:0 0 0 5px rgba(26,115,232,.3),0 2px 10px rgba(0,0,0,.35); }
 
 /* ══════════════════════════════════════════════════
-   SCREENS — with slide transitions
+   SCREENS
+   List sits above the map. Planner sits above the list
+   when open. No transforms — they break position:fixed
+   and pointer events on iOS.
 ══════════════════════════════════════════════════ */
-.screen-list,
-.screen-planner {
-  position:fixed; inset:0;
-  transition:transform .3s cubic-bezier(.4,0,.2,1), opacity .3s ease;
-}
-
-/* LIST SCREEN */
 .screen-list {
-  z-index:20; background:var(--bg);
+  position:fixed; inset:0; z-index:20;
+  background:var(--bg);
   display:flex; flex-direction:column;
   padding-top:var(--sat);
-  transform:translateX(0); opacity:1;
-  pointer-events:auto;
 }
-/* Use data-attr instead of .hidden so display:none doesn't override the transition */
-.screen-list[data-hidden] {
-  transform:translateX(-30%);
-  pointer-events:none; opacity:.0;
+.screen-list.is-away {
+  display:none;
 }
 
-/* PLANNER SCREEN */
 .screen-planner {
-  z-index:10; pointer-events:none;
-  display:flex; flex-direction:column;
-  transform:translateX(100%); opacity:0;
+  position:fixed; inset:0; z-index:30;
+  display:none;
 }
-.screen-planner:not([data-hidden]) {
-  transform:translateX(0); opacity:1;
-}
-.screen-planner:not([data-hidden]),
-.screen-planner:not([data-hidden]) * { pointer-events:auto; }
-.screen-planner[data-hidden] {
-  transform:translateX(100%); opacity:0; pointer-events:none;
-}
+.screen-planner.is-open { display:block; }
 
 /* ── List Header ─────────────────────────────────── */
 .list-header {
@@ -444,6 +428,7 @@ input,textarea { outline:none; border:none; -webkit-appearance:none; background:
   box-shadow:0 2px 6px rgba(26,115,232,.4);
   position:relative; z-index:1;
   transition:background .2s, box-shadow .2s;
+  touch-action:none; cursor:grab;
 }
 .stop-row.is-origin .stop-dot { background:var(--green); box-shadow:0 2px 6px rgba(15,157,88,.4); }
 .stop-row.is-dest   .stop-dot { background:var(--red); border-radius:7px; box-shadow:0 2px 6px rgba(234,67,53,.4); }

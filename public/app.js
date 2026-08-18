@@ -194,20 +194,21 @@ function dedupeHits(hits) {
 }
 
 /* ─── screens ─── */
-// Use data-hidden attribute (not .hidden class) so CSS slide transitions work
 function showList() {
-  $("listScreen").removeAttribute("data-hidden");
-  $("tripScreen").setAttribute("data-hidden","");
+  $("listScreen").classList.remove("is-away");
+  $("tripScreen").classList.remove("is-open");
   document.activeElement?.blur();
   hideSuggest();
   renderContinue();
 }
 function showTrip() {
-  $("listScreen").setAttribute("data-hidden","");
-  $("tripScreen").removeAttribute("data-hidden");
+  $("listScreen").classList.add("is-away");
+  $("tripScreen").classList.add("is-open");
   setSnap(S.snap || "mid");
-  setTimeout(() => { S.map?.invalidateSize(); drawMap(true); }, 60);
-  requestAnimationFrame(() => S.map?.invalidateSize());
+  requestAnimationFrame(() => {
+    S.map?.invalidateSize();
+    drawMap(true);
+  });
 }
 
 /* ─── snap ─── */
@@ -237,7 +238,7 @@ function renderContinue() {
   if (!card) return;
   const lastId = localStorage.getItem(LAST_KEY);
   const trip = lastId && (S.records||[]).find(t=>t.id===lastId);
-  if (!trip||!$("tripScreen").hasAttribute("data-hidden")) { card.classList.add("hidden"); return; }
+  if (!trip || $("tripScreen").classList.contains("is-open")) { card.classList.add("hidden"); return; }
   $("continueTitle").textContent = trip.title||"Untitled trip";
   $("continueSub").textContent   = `${filledStops(trip).length} stops`;
   card.onclick = () => openTrip(trip.id);
@@ -286,7 +287,6 @@ function openTrip(id) {
   S.route=null; S.navigating=false; S.navI=0; nudgeDismissed=false;
   rememberLast(id);
   syncStops(true);
-  applyLocationToFirstStop();
   showTrip();
   scheduleRoute(false);
 }
@@ -418,14 +418,22 @@ function showHereSuggest() {
 function applyHit(hit) {
   const stop = S.trip?.stops.find(s=>s.id===S.focusId);
   if (!stop) return;
-  // label = full address (used for geocoding/display); query = what shows in the input
-  const displayVal = hit.name && hit.name !== hit.label ? hit.name : hit.label;
-  stop.query=displayVal; stop.label=hit.label; stop.lat=hit.lat; stop.lng=hit.lng;
+  const isHere = !!hit.here;
+  const displayVal = isHere ? (S.hereLabel || "Your location") : (hit.name && hit.name !== hit.label ? hit.name : hit.label);
+  stop.query=displayVal; stop.label=hit.label; stop.lat=hit.lat; stop.lng=hit.lng; stop.here=isHere;
   hideSuggest();
   const input = $("stopList").querySelector(`.stop-input[data-id="${stop.id}"]`);
   if (input) { input.value=displayVal; input.classList.remove("unresolved"); }
+  // Current location is always stop 1
+  if (isHere) {
+    const i = S.trip.stops.findIndex(s=>s.id===stop.id);
+    if (i > 0) {
+      const [moved] = S.trip.stops.splice(i, 1);
+      S.trip.stops.unshift(moved);
+      syncStops(true);
+    }
+  }
   updateRowMeta(); scheduleSave(); scheduleRoute(false); buzz();
-  // Auto-advance to next empty stop
   const idx = S.trip.stops.findIndex(s=>s.id===stop.id);
   const next = S.trip.stops.slice(idx+1).find(s=>!(s.label||s.query).trim());
   if (next) {
@@ -441,7 +449,7 @@ $("suggestBox").addEventListener("click", async e => {
   if (!btn) return;
   if (btn.dataset.me) {
     if (!S.here) return toast("Location unavailable");
-    applyHit({label:S.hereLabel,lat:S.here.lat,lng:S.here.lng}); return;
+    applyHit({label:S.hereLabel,lat:S.here.lat,lng:S.here.lng,here:true,name:"Your location"}); return;
   }
   if (btn.dataset.pin) {
     const h=pinHit(btn.dataset.pin);
@@ -638,7 +646,7 @@ function bindStopInput(input) {
   input.addEventListener("input", () => {
     const stop = S.trip?.stops.find(s=>s.id===id);
     if (!stop) return;
-    stop.query=input.value; stop.lat=null; stop.lng=null; stop.label="";
+    stop.query=input.value; stop.lat=null; stop.lng=null; stop.label=""; stop.here=false;
     input.classList.toggle("unresolved",!!input.value.trim());
     clearTimeout(S.suggestTimer);
     const q = input.value.trim();
@@ -696,37 +704,41 @@ $("stopList").addEventListener("click", e => {
 });
 
 $("stopList").addEventListener("pointerdown", e => {
-  const grip = e.target.closest(".grip-btn");
-  if (!grip||!S.trip) return;
-  e.preventDefault();
+  const grip = e.target.closest(".grip-btn, .stop-dot");
+  if (!grip || !S.trip) return;
+  if (e.target.closest(".stop-input, .del-btn")) return;
   const row  = grip.closest(".stop-row");
+  if (!row) return;
+  e.preventDefault();
   const list = $("stopList");
   row.classList.add("dragging");
-  grip.setPointerCapture(e.pointerId);
+  try { grip.setPointerCapture(e.pointerId); } catch {}
 
   const move = ev => {
     const y = ev.clientY;
-    const others = [...list.querySelectorAll(".stop-row")].filter(r=>r!==row);
+    const others = [...list.querySelectorAll(".stop-row")].filter(r => r !== row);
     let placed = false;
     for (const r of others) {
       const b = r.getBoundingClientRect();
-      if (y < b.top+b.height/2) { list.insertBefore(row,r); placed=true; break; }
+      if (y < b.top + b.height / 2) { list.insertBefore(row, r); placed = true; break; }
     }
     if (!placed) list.appendChild(row);
   };
   const up = () => {
-    grip.removeEventListener("pointermove",move);
-    grip.removeEventListener("pointerup",up);
-    grip.removeEventListener("pointercancel",up);
+    grip.removeEventListener("pointermove", move);
+    grip.removeEventListener("pointerup", up);
+    grip.removeEventListener("pointercancel", up);
     row.classList.remove("dragging");
-    const byId = Object.fromEntries(S.trip.stops.map(s=>[s.id,s]));
-    S.trip.stops = [...list.querySelectorAll(".stop-row")].map(r=>byId[r.dataset.id]).filter(Boolean);
-    updateRowMeta(); scheduleSave(); scheduleRoute(false); buzz();
+    const byId = Object.fromEntries(S.trip.stops.map(s => [s.id, s]));
+    S.trip.stops = [...list.querySelectorAll(".stop-row")].map(r => byId[r.dataset.id]).filter(Boolean);
+    if (pinHereFirst()) syncStops(true);
+    else updateRowMeta();
+    scheduleSave(); scheduleRoute(false); buzz();
   };
-  grip.addEventListener("pointermove",move);
-  grip.addEventListener("pointerup",up);
-  grip.addEventListener("pointercancel",up);
-}, {passive:false});
+  grip.addEventListener("pointermove", move);
+  grip.addEventListener("pointerup", up);
+  grip.addEventListener("pointercancel", up);
+}, { passive: false });
 
 /* ─── action bar ─── */
 $("btnAddStop").onclick = () => {
@@ -750,8 +762,10 @@ $("btnAddStop").onclick = () => {
 $("btnPaste").onclick = () => { if (!S.trip) return; openModal("Paste addresses", pasteBody()); };
 $("btnReverse").onclick = () => {
   if (!S.trip) return;
-  S.trip.stops.reverse(); syncStops(true); scheduleSave(); scheduleRoute(false);
-  toast("Start and finish swapped");
+  S.trip.stops.reverse();
+  pinHereFirst();
+  syncStops(true); scheduleSave(); scheduleRoute(false);
+  toast("Order reversed");
 };
 $("btnOptimise").onclick = () => {
   if (!S.trip) return;
@@ -1051,6 +1065,7 @@ async function routeNow(optimize) {
       // Walk the original stop list; replace each geocoded slot with the next reordered stop.
       let ri = 0;
       S.trip.stops = S.trip.stops.map(s => geocodedIds.has(s.id) ? reordered[ri++] : s).filter(Boolean);
+      pinHereFirst();
       nudgeDismissed = true;
       $("optimiseNudge")?.classList.add("hidden");
       syncStops(true); toast("Reordered for a shorter drive");
@@ -1077,7 +1092,7 @@ function ensureMap() {
   L.tileLayer("https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png",{maxZoom:20}).addTo(S.map);
 }
 function mapPad() {
-  const h=$("tripScreen").classList.contains("hidden")?24:$("sheet").offsetHeight||200;
+  const h = $("tripScreen").classList.contains("is-open") ? ($("sheet").offsetHeight || 200) : 24;
   return {paddingTopLeft:[16,64],paddingBottomRight:[16,h+10]};
 }
 function drawMap(fit) {
@@ -1214,12 +1229,21 @@ if (window.visualViewport) {
 function applyLocationToFirstStop() {
   if (!S.here || !S.trip) return;
   const first = S.trip.stops[0];
-  if (!first || (first.label || first.query || "").trim()) return; // already has a value
+  if (!first || (first.label || first.query || "").trim()) return;
   const label = S.hereLabel && S.hereLabel !== "Your location" ? S.hereLabel : "Your location";
-  first.query = label; first.label = label; first.lat = S.here.lat; first.lng = S.here.lng;
+  first.query = label; first.label = label; first.lat = S.here.lat; first.lng = S.here.lng; first.here = true;
   const input = $("stopList").querySelector(`.stop-input[data-id="${first.id}"]`);
   if (input) { input.value = label; input.classList.remove("unresolved"); }
   updateRowMeta(); scheduleSave(); scheduleRoute(false);
+}
+
+function pinHereFirst() {
+  if (!S.trip) return false;
+  const i = S.trip.stops.findIndex(s => s.here);
+  if (i <= 0) return false;
+  const [moved] = S.trip.stops.splice(i, 1);
+  S.trip.stops.unshift(moved);
+  return true;
 }
 
 function locate() {
@@ -1336,36 +1360,40 @@ function importTripFromUrl() {
 
 /* ─── analytics ─── */
 const _analytics = (function() {
-  // Anonymous session id — regenerated each page load (not stored)
   const sid = crypto.randomUUID?.() ?? `${Date.now()}-${Math.random().toString(16).slice(2)}`;
-  // Anonymous device fingerprint — hash of stable browser properties, NOT stored in localStorage
   const rawFp = [navigator.language, screen.width, screen.height, Intl.DateTimeFormat().resolvedOptions().timeZone, navigator.hardwareConcurrency||0].join("|");
   let did = "";
+  const queued = [];
+
+  function send(payload) {
+    const body = JSON.stringify(payload);
+    const blob = new Blob([body], { type: "application/json" });
+    if (!navigator.sendBeacon || !navigator.sendBeacon("/api/ping", blob)) {
+      fetch("/api/ping", { method:"POST", headers:{ "Content-Type":"application/json" }, body, keepalive:true }).catch(()=>{});
+    }
+  }
+
+  function ping(kind, meta) {
+    if (!did) { queued.push({ kind, meta }); return; }
+    send({ sid, did, kind, meta });
+  }
+
   (async () => {
     try {
       const buf = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(rawFp));
       did = [...new Uint8Array(buf)].map(b=>b.toString(16).padStart(2,"0")).join("").slice(0,32);
     } catch { did = rawFp.slice(0,32).replace(/[^a-z0-9]/g,"x"); }
+    queued.splice(0).forEach(q => send({ sid, did, kind: q.kind, meta: q.meta }));
   })();
 
-  function ping(kind, meta) {
-    if (!did) return; // wait for fingerprint
-    navigator.sendBeacon?.("/api/ping", JSON.stringify({ sid, did, kind, meta })) ||
-    fetch("/api/ping", { method:"POST", body:JSON.stringify({ sid, did, kind, meta }), keepalive:true }).catch(()=>{});
-  }
-
-  // Session start
-  setTimeout(() => ping("session"), 500);
-
-  // Heartbeat every 4 minutes (keeps session "active")
+  setTimeout(() => ping("session"), 400);
   setInterval(() => ping("session"), 4 * 60_000);
 
-  // Global unhandled error reporting (silent — doesn't affect UX)
   window.addEventListener("error", e => {
-    fetch("/api/error", { method:"POST", body:JSON.stringify({ message: e.message, path: e.filename }), keepalive:true }).catch(()=>{});
+    fetch("/api/error", { method:"POST", headers:{ "Content-Type":"application/json" }, body:JSON.stringify({ message: e.message, path: e.filename }), keepalive:true }).catch(()=>{});
   });
   window.addEventListener("unhandledrejection", e => {
-    fetch("/api/error", { method:"POST", body:JSON.stringify({ message: String(e.reason?.message||e.reason||"unknown") }), keepalive:true }).catch(()=>{});
+    fetch("/api/error", { method:"POST", headers:{ "Content-Type":"application/json" }, body:JSON.stringify({ message: String(e.reason?.message||e.reason||"unknown") }), keepalive:true }).catch(()=>{});
   });
 
   return { ping };

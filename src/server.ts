@@ -8,7 +8,7 @@ import { fileURLToPath } from "node:url";
 import { drivingRoute, geocode, optimizedTrip, reverse, suggest } from "./geo.ts";
 import { hasGoogleKey } from "./google.ts";
 import {
-  record, recordError, getStats, startPruneLoop,
+  record, recordError, getStats, startPruneLoop, loadPersisted,
   serverCounters, type EventKind,
 } from "./analytics.ts";
 
@@ -103,7 +103,7 @@ const server = http.createServer(async (req, res) => {
       res.writeHead(204, {
         "Access-Control-Allow-Origin": "*",
         "Access-Control-Allow-Methods": "GET,POST,PUT,DELETE,OPTIONS",
-        "Access-Control-Allow-Headers": "Content-Type",
+        "Access-Control-Allow-Headers": "Content-Type, Authorization",
       });
       res.end();
       return;
@@ -135,6 +135,7 @@ const server = http.createServer(async (req, res) => {
     }
 
     if (u.pathname === "/api/geocode" && req.method === "POST") {
+      serverCounters.geocodes++;
       const body = await readBody(req);
       const lines: string[] = Array.isArray(body.lines)
         ? body.lines.map((x: unknown) => String(x || "").trim()).filter(Boolean)
@@ -224,7 +225,7 @@ const server = http.createServer(async (req, res) => {
         res.end(JSON.stringify({ error: "Unauthorised" }));
         return;
       }
-      return send(res, 200, getStats());
+      return send(res, 200, getStats({ googlePlaces: hasGoogleKey() }));
     }
 
     // Trip CRUD — trips live on-device (localStorage). Server returns empty stubs.
@@ -236,14 +237,20 @@ const server = http.createServer(async (req, res) => {
       return send(res, 200, { ok: true });
     }
 
+    if ((u.pathname === "/admin" || u.pathname === "/admin.html") && req.method === "GET") {
+      return staticFile("/admin.html", res);
+    }
+
     if (req.method === "GET") return staticFile(u.pathname, res);
     send(res, 404, { error: "Not found" });
   } catch (err) {
+    recordError("server", err instanceof Error ? err.message : String(err));
     send(res, 500, { error: err instanceof Error ? err.message : String(err) });
   }
 });
 
 startPruneLoop();
+loadPersisted().catch(() => {});
 server.keepAliveTimeout = 65_000;
 server.headersTimeout = 70_000;
 server.listen(PORT, "0.0.0.0", () => {
