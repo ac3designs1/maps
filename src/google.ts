@@ -1,4 +1,5 @@
 import type { SuggestHit } from "./geo.ts";
+import { dedupeSuggestHits } from "./geo.ts";
 
 const BIZ_TYPES = new Set([
   "establishment",
@@ -91,15 +92,7 @@ function fmtPlace(name: string, formatted: string) {
 }
 
 function dedupeHits(hits: SuggestHit[]) {
-  const seen = new Set<string>();
-  const out: SuggestHit[] = [];
-  for (const h of hits) {
-    const key = `${h.lat.toFixed(5)},${h.lng.toFixed(5)}|${h.label.toLowerCase()}`;
-    if (seen.has(key)) continue;
-    seen.add(key);
-    out.push(h);
-  }
-  return out;
+  return dedupeSuggestHits(hits);
 }
 
 async function googlePlaceDetails(placeId: string): Promise<SuggestHit | null> {
@@ -162,10 +155,11 @@ async function googleAutocomplete(query: string, lat?: number, lon?: number): Pr
     }>;
   };
 
-  const ids = (data.suggestions || [])
-    .map((s) => s.placePrediction?.placeId || s.placePrediction?.place?.replace(/^places\//, ""))
-    .filter(Boolean)
-    .slice(0, 6) as string[];
+  const ids = [...new Set(
+    (data.suggestions || [])
+      .map((s) => s.placePrediction?.placeId || s.placePrediction?.place?.replace(/^places\//, ""))
+      .filter(Boolean) as string[],
+  )].slice(0, 6);
 
   const hits = await Promise.all(ids.map((id) => googlePlaceDetails(id)));
   return hits.filter((h): h is SuggestHit => !!h);
@@ -228,12 +222,9 @@ export async function googleSuggest(q: string, lat?: number, lon?: number): Prom
   const query = q.trim();
   if (query.length < 2) return [];
 
-  const [auto, text] = await Promise.allSettled([googleAutocomplete(query, lat, lon), googleTextSearch(query, lat, lon)]);
-  const merged = dedupeHits([
-    ...(auto.status === "fulfilled" ? auto.value : []),
-    ...(text.status === "fulfilled" ? text.value : []),
-  ]);
-  return merged.slice(0, 8);
+  const autoHits = await googleAutocomplete(query, lat, lon);
+  const textHits = autoHits.length >= 5 ? [] : await googleTextSearch(query, lat, lon);
+  return dedupeSuggestHits([...autoHits, ...textHits]).slice(0, 8);
 }
 
 export async function googleGeocode(q: string, lat?: number, lon?: number): Promise<SuggestHit | null> {

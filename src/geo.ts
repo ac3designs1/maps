@@ -117,12 +117,39 @@ async function getJson(url: string, ms = 10000, tries = 2) {
 }
 
 function dedupe(hits: SuggestHit[]) {
-  const seen = new Set<string>();
+  return dedupeSuggestHits(hits);
+}
+
+function normText(s: string) {
+  return String(s || "")
+    .toLowerCase()
+    .replace(/[^\w\s]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function distM(a: SuggestHit, b: SuggestHit) {
+  const dlat = (a.lat - b.lat) * 111000;
+  const dlng = (a.lng - b.lng) * 111000 * Math.cos((a.lat * Math.PI) / 180);
+  return Math.sqrt(dlat * dlat + dlng * dlng);
+}
+
+export function isSamePlace(a: SuggestHit, b: SuggestHit) {
+  const dm = distM(a, b);
+  if (dm < 35) return true;
+  const labelA = normText(a.label);
+  const labelB = normText(b.label);
+  if (labelA && labelA === labelB) return true;
+  const nameA = normText(a.name || a.label.split(",")[0]);
+  const nameB = normText(b.name || b.label.split(",")[0]);
+  if (dm < 80 && nameA && nameA === nameB) return true;
+  return false;
+}
+
+export function dedupeSuggestHits(hits: SuggestHit[]) {
   const out: SuggestHit[] = [];
   for (const h of hits) {
-    const key = `${h.lat.toFixed(5)},${h.lng.toFixed(5)}|${h.label.toLowerCase()}`;
-    if (seen.has(key)) continue;
-    seen.add(key);
+    if (out.some((prev) => isSamePlace(prev, h))) continue;
     out.push(h);
   }
   return out;

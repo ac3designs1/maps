@@ -143,6 +143,32 @@ function esc(s) {
     .replace(/"/g, "&quot;");
 }
 
+function dedupeClientHits(hits) {
+  const out = [];
+  for (const h of hits) {
+    const dup = out.some((p) => {
+      const dlat = (h.lat - p.lat) * 111000;
+      const dlng = (h.lng - p.lng) * 111000 * Math.cos((h.lat * Math.PI) / 180);
+      const dm = Math.sqrt(dlat * dlat + dlng * dlng);
+      if (dm < 35) return true;
+      const norm = (s) =>
+        String(s || "")
+          .toLowerCase()
+          .replace(/[^\w\s]/g, " ")
+          .replace(/\s+/g, " ")
+          .trim();
+      const a = norm(h.label);
+      const b = norm(p.label);
+      if (a && a === b) return true;
+      const na = norm(h.name || h.label.split(",")[0]);
+      const nb = norm(p.name || p.label.split(",")[0]);
+      return dm < 80 && na && na === nb;
+    });
+    if (!dup) out.push(h);
+  }
+  return out;
+}
+
 function showList() {
   $("listScreen").classList.remove("hidden");
   $("tripScreen").classList.add("hidden");
@@ -165,6 +191,14 @@ function setSnap(which) {
   el.classList.remove("snap-collapsed", "snap-mid", "snap-full");
   el.classList.add(`snap-${which}`);
   setTimeout(() => state.map?.invalidateSize(), 200);
+  const previewBtn = $("btnPreview");
+  if (previewBtn) {
+    previewBtn.classList.toggle("active", which !== "full");
+    previewBtn.innerHTML =
+      which === "full"
+        ? `<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 9h18M9 9v12"/></svg> Map`
+        : `<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 9h18M9 9v12"/></svg> List`;
+  }
 }
 
 function readPins() {
@@ -609,7 +643,7 @@ function bindStopInput(input) {
     }
     state.suggestTimer = setTimeout(async () => {
       try {
-        const hits = await lookup(q);
+        const hits = dedupeClientHits(await lookup(q));
         if (state.focusId !== id) return;
         if (!hits.length) return hideSuggest();
         $("suggestPop").innerHTML = hits
@@ -783,6 +817,21 @@ $("btnOptimize").onclick = () => {
 };
 $("btnShare").onclick = () => shareTrip();
 $("btnMore").onclick = () => openModal("Trip", moreBody());
+
+$("btnPreview").onclick = () => {
+  const isEditing = state.snap === "full";
+  if (isEditing) {
+    document.activeElement?.blur();
+    hideSuggest();
+    setSnap("mid");
+    drawMap(true);
+    $("btnPreview").classList.add("active");
+  } else {
+    setSnap("full");
+    $("btnPreview").classList.remove("active");
+    setTimeout(() => $("stopList").querySelector("input")?.focus(), 180);
+  }
+};
 $("btnBack").onclick = () => {
   hideSuggest();
   saveTrip();

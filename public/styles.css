@@ -341,6 +341,20 @@ button { cursor: pointer; }
 .btn.primary:disabled { opacity: 0.35; }
 .btn.primary:not(:disabled):active { background: var(--blue-press); }
 .btn.small { padding: 8px 14px; font-size: 13px; }
+.btn-preview {
+  display: flex; align-items: center; gap: 5px;
+  border: 0.5px solid var(--hair); border-radius: 18px;
+  background: var(--card); color: var(--ink);
+  padding: 8px 12px; font-size: 13px; font-weight: 650;
+  flex-shrink: 0;
+}
+.btn-preview:active, .btn-preview.active {
+  background: var(--blue); color: #fff; border-color: transparent;
+}
+@media (prefers-color-scheme: dark) {
+  .btn-preview { background: #2c2c2e; }
+  .btn-preview:active, .btn-preview.active { background: var(--blue); }
+}
 
 .modal { position: fixed; inset: 0; z-index: 30; }
 .sheet-back { position: absolute; inset: 0; background: rgba(0,0,0,.36); }
