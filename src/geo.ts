@@ -366,12 +366,12 @@ function parseRoute(json: {
   const geometry: [number, number][] = (r.geometry?.coordinates || []).map((c) => [c[1], c[0]]);
   let order: number[] | undefined;
   if (json.waypoints?.length) {
-    // OSRM trip API: waypoints[inputIdx].trips_index = optimised position for that input stop.
-    // We want order[optimisedPos] = inputIdx so the client can reorder its stop array.
+    // OSRM trip API: waypoints[inputIdx].waypoint_index = optimised position for input stop inputIdx.
+    // Build order[optimisedPos] = inputIdx so the client can reorder its stop array.
     const n = json.waypoints.length;
     const raw: (number | undefined)[] = new Array(n);
     json.waypoints.forEach((w, inputIdx) => {
-      const optimisedPos = w.trips_index ?? w.waypoint_index ?? inputIdx;
+      const optimisedPos = w.waypoint_index ?? inputIdx;
       if (optimisedPos >= 0 && optimisedPos < n) raw[optimisedPos] = inputIdx;
     });
     if (!raw.some((v) => v == null)) order = raw as number[];
