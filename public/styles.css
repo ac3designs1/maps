@@ -117,7 +117,8 @@ input,textarea { outline:none; border:none; -webkit-appearance:none; background:
 .screen-planner:not([data-hidden]) {
   transform:translateX(0); opacity:1;
 }
-.screen-planner:not([data-hidden]) > * { pointer-events:auto; }
+.screen-planner:not([data-hidden]),
+.screen-planner:not([data-hidden]) * { pointer-events:auto; }
 .screen-planner[data-hidden] {
   transform:translateX(100%); opacity:0; pointer-events:none;
 }
@@ -385,7 +386,7 @@ input,textarea { outline:none; border:none; -webkit-appearance:none; background:
   box-shadow:0 2px 12px rgba(26,115,232,.4);
   transition:transform .1s, opacity .15s;
 }
-.btn-start:disabled { opacity:.28; pointer-events:none; }
+.btn-start:disabled { opacity:.28; pointer-events:none !important; }
 .btn-start:not(:disabled):active { transform:scale(.91); }
 
 /* Nav bar */
