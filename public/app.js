@@ -302,12 +302,12 @@ function renderContinue() {
   const card = $("continueCard");
   const lastId = localStorage.getItem(LAST_KEY);
   const trip = lastId && (state.records || []).find((t) => t.id === lastId);
-  if (!trip || $("tripScreen").classList.contains("hidden") === false) {
+  if (!trip || !$("tripScreen").classList.contains("hidden")) {
     card.classList.add("hidden");
     return;
   }
-  card.className = "continue";
-  card.innerHTML = `<strong>Continue</strong><span>${esc(trip.title || "Untitled trip")} · ${filledStops(trip).length} stops</span>`;
+  const sub = $("continueSub");
+  if (sub) sub.textContent = `${esc(trip.title || "Untitled trip")} · ${filledStops(trip).length} stops`;
   card.onclick = () => openTrip(trip.id);
   card.classList.remove("hidden");
 }
@@ -918,12 +918,14 @@ function closeModal() {
 }
 
 function pasteBody() {
-  return `    <p class="hint">One per line — street addresses or company names in Australia. Woolworths, Bunnings, a job site, whatever.</p>
-    <textarea id="pasteBox" placeholder="Bunnings Warehouse, Geebung&#10;12 Queen St, Brisbane&#10;Woolworths Townsville"></textarea>
+  return `<div class="sheet-inner">
+    <p class="hint">One address or business per line. Up to 200 stops at once.</p>
+    <textarea id="pasteBox" placeholder="Bunnings Warehouse Geebung&#10;12 Queen St Brisbane&#10;Woolworths Townsville"></textarea>
     <div style="display:flex;gap:8px;margin-top:14px">
-      <button type="button" class="btn primary" id="pasteGo" style="flex:1">Add them</button>
+      <button type="button" class="btn primary" id="pasteGo" style="flex:1">Add stops</button>
       <button type="button" class="chip" id="pasteCancel">Cancel</button>
-    </div>`;
+    </div>
+  </div>`;
 }
 
 function chk(on) {

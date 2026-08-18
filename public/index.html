@@ -15,7 +15,7 @@
   <link rel="icon" href="icon.svg" />
   <title>Trips</title>
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
-  <link rel="stylesheet" href="styles.css?v=12" />
+  <link rel="stylesheet" href="styles.css?v=13" />
 </head>
 <body>
 
@@ -37,7 +37,12 @@
       <input id="tripSearch" type="search" placeholder="Search trips" enterkeyhint="search" />
     </div>
     <div id="netBanner" class="net-banner hidden">You're offline — trips still saved on this phone.</div>
-    <button id="continueCard" class="continue hidden"></button>
+    <button id="continueCard" class="continue hidden">
+      <span class="continue-icon">
+        <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 22s-8-6-8-12a8 8 0 1 1 16 0c0 6-8 12-8 12z"/><circle cx="12" cy="10" r="3"/></svg>
+      </span>
+      <span id="continueText"><strong>Continue trip</strong><span id="continueSub"></span></span>
+    </button>
     <div id="tripList" class="trip-list"></div>
     <div id="tripEmpty" class="empty-hero">
       <div class="empty-art" aria-hidden="true">
@@ -114,6 +119,6 @@
   </div>
 
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-  <script src="app.js?v=12"></script>
+  <script src="app.js?v=13"></script>
 </body>
 </html>
