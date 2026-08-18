@@ -1,0 +1,21 @@
+{
+  "name": "maps",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "iPhone trip planner — Google Maps style, no 10-stop limit",
+  "scripts": {
+    "start": "tsx src/server.ts",
+    "dev": "tsx src/server.ts"
+  },
+  "engines": {
+    "node": "22.x"
+  },
+  "dependencies": {
+    "tsx": "^4.19.4"
+  },
+  "devDependencies": {
+    "@types/node": "^22.15.21",
+    "typescript": "^5.8.3"
+  }
+}

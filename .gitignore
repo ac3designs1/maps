@@ -1,0 +1,4 @@
+node_modules/
+data/trips.json
+*.log
+.DS_Store

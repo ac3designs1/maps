@@ -1,0 +1,75 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, maximum-scale=1, user-scalable=no" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+  <meta name="apple-mobile-web-app-title" content="Trips" />
+  <meta name="theme-color" content="#ffffff" />
+  <link rel="manifest" href="manifest.webmanifest" />
+  <link rel="apple-touch-icon" href="icon.svg" />
+  <link rel="icon" href="icon.svg" />
+  <title>Trips</title>
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <div id="map"></div>
+
+  <section id="listScreen" class="screen">
+    <header class="page-head">
+      <h1>Trips</h1>
+      <button type="button" id="btnNew" class="icon-fab" aria-label="New trip">+</button>
+    </header>
+    <div class="search-row">
+      <input id="tripSearch" type="search" placeholder="Search saved trips" enterkeyhint="search" />
+    </div>
+    <div id="tripList" class="trip-list"></div>
+    <p id="tripEmpty" class="empty">No trips yet. Tap + to plan one — as many stops as you want.</p>
+  </section>
+
+  <section id="tripScreen" class="screen hidden">
+    <div class="plan-card" id="planCard">
+      <div class="plan-top">
+        <button type="button" id="btnBack" class="text-btn" aria-label="Back">‹</button>
+        <input id="tripTitle" class="title-input" maxlength="80" placeholder="Trip name" />
+        <span id="saveState" class="save-state">Saved</span>
+      </div>
+      <div id="stopList" class="stop-list"></div>
+      <div class="plan-actions">
+        <button type="button" id="btnAddStop" class="chip">+ Add stop</button>
+        <button type="button" id="btnPaste" class="chip">Paste addresses</button>
+      </div>
+    </div>
+
+    <div class="suggest-pop hidden" id="suggestPop"></div>
+
+    <div class="bottom-card" id="bottomCard">
+      <div class="eta">
+        <strong id="etaMain">Add two places</strong>
+        <span id="etaSub">No 10-stop limit · auto-saves</span>
+      </div>
+      <div class="bottom-row">
+        <button type="button" id="btnStart" class="btn primary" disabled>Start</button>
+        <button type="button" id="btnOptimize" class="btn ghost">Optimize</button>
+        <button type="button" id="btnMore" class="btn ghost">More</button>
+      </div>
+    </div>
+  </section>
+
+  <div id="sheet" class="sheet hidden" aria-hidden="true">
+    <div class="sheet-back" id="sheetBack"></div>
+    <div class="sheet-panel">
+      <div class="sheet-grab"></div>
+      <h2 id="sheetTitle">More</h2>
+      <div id="sheetBody"></div>
+    </div>
+  </div>
+
+  <div id="toast" class="toast hidden"></div>
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>
