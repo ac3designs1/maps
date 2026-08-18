@@ -175,12 +175,12 @@ const server = http.createServer(async (req, res) => {
       const roundtrip = !!body.roundtrip;
       const optimize = !!body.optimize;
       if (optimize) serverCounters.optimises++;
-      const keepEnds = !!body.keepEnds;
+      const lockStart = !!body.lockStart;
       try {
         const result = optimize
           ? await optimizedTrip(pts, {
               roundtrip,
-              keepEnds,
+              lockStart,
               avoidTolls: !!body.avoidTolls,
               avoidFerries: !!body.avoidFerries,
             })

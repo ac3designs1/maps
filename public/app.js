@@ -972,7 +972,6 @@ function moreBody() {
   <div class="msec">
     <button class="mrow" data-more="star">${ico(starSvg)}${t.starred?"Starred":"Star this trip"}<span class="mrow-sub">${t.starred?"★":""}</span></button>
     <button class="mrow" data-more="round">${ico(`<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 1l4 4-4 4M7 23l-4-4 4-4"/><path d="M3 11V9a4 4 0 0 1 4-4h14M21 13v2a4 4 0 0 1-4 4H3"/></svg>`)}Round trip${chk(t.roundtrip)}</button>
-    <button class="mrow" data-more="ends">${ico(`<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 3v18M19 3v18M5 12h14"/></svg>`)}Lock last stop${chk(t.keepEnds)}</button>
   </div>
   <div class="msec">
     <button class="mrow" data-more="tolls">${ico(`<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="7" width="20" height="14" rx="2"/><path d="M12 11v6M9 14h6"/><path d="M7 7V5a5 5 0 0 1 10 0v2"/></svg>`)}Avoid tolls${chk(t.avoidTolls)}</button>
@@ -1026,7 +1025,6 @@ $("modalBody").addEventListener("click", e => {
     ferries() { S.trip.avoidFerries=!S.trip.avoidFerries; closeModal(); scheduleSave(); scheduleRoute(false); },
     refresh() { closeModal(); scheduleRoute(false); toast("Refreshing route…"); },
     round()   { S.trip.roundtrip=!S.trip.roundtrip; closeModal(); syncStops(true); scheduleSave(); scheduleRoute(false); },
-    ends()    { S.trip.keepEnds=!S.trip.keepEnds; closeModal(); toast(S.trip.keepEnds?"Last stop stays put":"Optimise may change the last stop"); scheduleSave(); },
     clear()   {
       closeModal();
       const prev=JSON.parse(JSON.stringify(S.trip.stops));
@@ -1152,7 +1150,7 @@ async function routeNow(optimize) {
   try {
     const data=await api("/api/route",{method:"POST",timeout:35000,body:JSON.stringify({
       points:pts.map(p=>({lat:p.lat,lng:p.lng})),
-      optimize, roundtrip:!!S.trip.roundtrip, keepEnds:!!S.trip.keepEnds,
+      optimize, roundtrip:!!S.trip.roundtrip, lockStart:isHereStop(pts[0]),
       avoidTolls:!!S.trip.avoidTolls, avoidFerries:!!S.trip.avoidFerries,
     })});
     if (seq!==S.routeSeq || !S.trip) return;

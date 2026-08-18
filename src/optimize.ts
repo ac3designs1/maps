@@ -20,7 +20,6 @@ function haversineMatrix(pts: LatLng[]): number[][] {
   for (let i = 0; i < n; i++) {
     for (let j = 0; j < n; j++) {
       if (i === j) continue;
-      // ~45 km/h driving estimate — only used if live tables fail
       m[i][j] = haversineM(pts[i], pts[j]) / 12.5;
     }
   }
@@ -76,14 +75,14 @@ function permute(arr: number[]): number[][] {
   return out;
 }
 
-function bruteOrder(n: number, cost: number[][], lockEnd: boolean, roundtrip: boolean) {
-  const last = lockEnd && n > 1 ? n - 1 : -1;
-  const mid = [];
-  for (let i = 1; i < n; i++) if (i !== last) mid.push(i);
-  let best: number[] = [0, ...mid, ...(last >= 0 ? [last] : [])];
+function bruteOrder(n: number, cost: number[][], lockStart: boolean, roundtrip: boolean) {
+  const head = lockStart ? [0] : [];
+  const rest = [];
+  for (let i = lockStart ? 1 : 0; i < n; i++) rest.push(i);
+  let best: number[] = lockStart ? [0, ...rest] : rest.slice();
   let bestC = tourCost(best, cost, roundtrip);
-  for (const p of permute(mid)) {
-    const order = last >= 0 ? [0, ...p, last] : [0, ...p];
+  for (const p of permute(rest)) {
+    const order = [...head, ...p];
     const c = tourCost(order, cost, roundtrip);
     if (c < bestC) {
       best = order;
@@ -93,13 +92,10 @@ function bruteOrder(n: number, cost: number[][], lockEnd: boolean, roundtrip: bo
   return best;
 }
 
-function nearestNeighbor(n: number, cost: number[][], lockEnd: boolean) {
-  const last = lockEnd && n > 1 ? n - 1 : -1;
-  const used = new Set<number>([0]);
-  if (last >= 0) used.add(last);
-  const order = [0];
-  const target = n - (last >= 0 ? 1 : 0);
-  while (order.length < target) {
+function nearestNeighbor(n: number, cost: number[][], start: number) {
+  const used = new Set<number>([start]);
+  const order = [start];
+  while (order.length < n) {
     const cur = order[order.length - 1];
     let best = -1;
     let bestC = Infinity;
@@ -114,18 +110,18 @@ function nearestNeighbor(n: number, cost: number[][], lockEnd: boolean) {
     used.add(best);
     order.push(best);
   }
-  if (last >= 0) order.push(last);
   return order;
 }
 
-function twoOpt(order: number[], cost: number[][], roundtrip: boolean, lockEnd: boolean) {
-  const hi = lockEnd ? order.length - 2 : order.length - 1;
+function twoOpt(order: number[], cost: number[][], roundtrip: boolean, lockStart: boolean) {
+  const lo = lockStart ? 1 : 0;
+  const hi = order.length - 1;
   let best = order.slice();
   let bestC = tourCost(best, cost, roundtrip);
   let improved = true;
   while (improved) {
     improved = false;
-    for (let i = 1; i < hi; i++) {
+    for (let i = lo; i < hi; i++) {
       for (let k = i + 1; k <= hi; k++) {
         const next = best.slice(0, i).concat(best.slice(i, k + 1).reverse(), best.slice(k + 1));
         const c = tourCost(next, cost, roundtrip);
@@ -141,25 +137,39 @@ function twoOpt(order: number[], cost: number[][], roundtrip: boolean, lockEnd: 
 }
 
 /**
- * Shortest visiting order. Index 0 (Your location / start) always stays first.
- * If lockEnd, the last stop stays last. Everything in between is free to move.
+ * Shortest visiting order.
+ * Last stop is never locked.
+ * First stop is locked only when lockStart is true (Your location).
  */
 export async function bestStopOrder(
   pts: LatLng[],
-  opts: { roundtrip?: boolean; keepEnds?: boolean; avoidTolls?: boolean; avoidFerries?: boolean },
+  opts: { roundtrip?: boolean; lockStart?: boolean; keepEnds?: boolean; avoidTolls?: boolean; avoidFerries?: boolean },
 ): Promise<number[]> {
   const n = pts.length;
   if (n <= 2) return pts.map((_, i) => i);
 
-  const lockEnd = !!opts.keepEnds && !opts.roundtrip;
+  const lockStart = !!opts.lockStart;
   const cost = await durationMatrix(pts, opts);
-  const movable = n - 1 - (lockEnd ? 1 : 0);
+  const movable = n - (lockStart ? 1 : 0);
 
-  let order =
-    movable <= 8
-      ? bruteOrder(n, cost, lockEnd, !!opts.roundtrip)
-      : nearestNeighbor(n, cost, lockEnd);
-  order = twoOpt(order, cost, !!opts.roundtrip, lockEnd);
+  let order: number[];
+  if (movable <= 8) {
+    order = bruteOrder(n, cost, lockStart, !!opts.roundtrip);
+  } else if (lockStart) {
+    order = nearestNeighbor(n, cost, 0);
+  } else {
+    order = nearestNeighbor(n, cost, 0);
+    let bestC = tourCost(order, cost, !!opts.roundtrip);
+    for (let s = 1; s < n; s++) {
+      const cand = nearestNeighbor(n, cost, s);
+      const c = tourCost(cand, cost, !!opts.roundtrip);
+      if (c < bestC) {
+        order = cand;
+        bestC = c;
+      }
+    }
+  }
+  order = twoOpt(order, cost, !!opts.roundtrip, lockStart);
 
   if (order.length !== n || new Set(order).size !== n) {
     return pts.map((_, i) => i);

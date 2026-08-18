@@ -424,7 +424,7 @@ export async function drivingRoute(
 
 export async function optimizedTrip(
   pts: LngLat[],
-  opts: { roundtrip: boolean; keepEnds: boolean; avoidTolls?: boolean; avoidFerries?: boolean },
+  opts: { roundtrip: boolean; lockStart?: boolean; keepEnds?: boolean; avoidTolls?: boolean; avoidFerries?: boolean },
 ): Promise<RouteResult> {
   if (pts.length < 2) throw new Error("Need two stops");
   if (pts.length > 80) throw new Error("Optimize works up to 80 stops — route still has no cap");
