@@ -22,6 +22,8 @@ export type Trip = {
   keepEnds: boolean;
   createdAt: number;
   updatedAt: number;
+  distanceM?: number;
+  durationS?: number;
 };
 
 type Store = { trips: Trip[] };
@@ -63,6 +65,8 @@ export async function listTrips() {
         .slice(0, 3)
         .map((s) => s.label || s.query)
         .join(" → "),
+      distanceM: t.distanceM || 0,
+      durationS: t.durationS || 0,
     }));
 }
 

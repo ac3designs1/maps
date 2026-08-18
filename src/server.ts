@@ -6,7 +6,7 @@ import { createReadStream } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { randomUUID } from "node:crypto";
 import { allTrips, deleteTrip, getTrip, listTrips, upsertTrip, type Trip } from "./trips.ts";
-import { drivingRoute, geocode, optimizedTrip, suggest } from "./geo.ts";
+import { drivingRoute, geocode, optimizedTrip, reverse, suggest } from "./geo.ts";
 
 const root = path.join(path.dirname(fileURLToPath(import.meta.url)), "..");
 const pub = path.join(root, "public");
@@ -115,6 +115,14 @@ const server = http.createServer(async (req, res) => {
 
     if (u.pathname === "/api/lan" && req.method === "GET") {
       return send(res, 200, { lan: `http://${lanIPv4()}:${PORT}`, port: PORT });
+    }
+
+    if (u.pathname === "/api/reverse" && req.method === "GET") {
+      const lat = Number(u.searchParams.get("lat"));
+      const lon = Number(u.searchParams.get("lon"));
+      if (!Number.isFinite(lat) || !Number.isFinite(lon)) return send(res, 400, { error: "Need lat/lon" });
+      const hit = await reverse(lat, lon);
+      return send(res, 200, { hit });
     }
 
     if (u.pathname === "/api/suggest" && req.method === "GET") {

@@ -1,25 +1,47 @@
-const UA = "TripPlanner/1.0 (iPhone PWA; local use)";
+const UA = "TripPlanner/1.0 (https://github.com/ac3designs1/maps)";
 
 export type SuggestHit = {
   label: string;
   lat: number;
   lng: number;
+  kind?: string;
 };
 
+function uniqLabel(parts: unknown[]) {
+  return [...new Set(parts.map((x) => String(x || "").trim()).filter(Boolean))].join(", ");
+}
+
 function fmtPhoton(props: Record<string, unknown>, fallback: string) {
-  const parts = [
-    [props.housenumber, props.street].filter(Boolean).join(" "),
-    props.name,
-    props.city || props.town || props.village || props.locality,
-    props.state,
-    props.postcode,
-    props.country,
-  ]
-    .flat()
-    .map((x) => String(x || "").trim())
-    .filter(Boolean);
-  const uniq = [...new Set(parts)];
-  return uniq.join(", ") || fallback;
+  const street = [props.housenumber, props.street].filter(Boolean).join(" ");
+  return (
+    uniqLabel([
+      street || props.name,
+      street && props.name && props.name !== street ? props.name : "",
+      props.city || props.town || props.village || props.suburb || props.locality,
+      props.state,
+      props.postcode,
+      props.country,
+    ]) || fallback
+  );
+}
+
+function fmtNominatim(item: {
+  display_name?: string;
+  address?: Record<string, string>;
+  name?: string;
+}) {
+  const a = item.address || {};
+  const street = [a.house_number, a.road].filter(Boolean).join(" ");
+  return (
+    uniqLabel([
+      street || item.name || a.amenity || a.shop,
+      a.suburb || a.neighbourhood,
+      a.city || a.town || a.village || a.municipality,
+      a.state,
+      a.postcode,
+      a.country,
+    ]) || item.display_name || ""
+  );
 }
 
 async function getJson(url: string, ms = 8000) {
@@ -37,13 +59,24 @@ async function getJson(url: string, ms = 8000) {
   }
 }
 
-export async function suggest(q: string, lat?: number, lon?: number): Promise<SuggestHit[]> {
-  const query = q.trim();
-  if (query.length < 2) return [];
+function dedupe(hits: SuggestHit[]) {
+  const seen = new Set<string>();
+  const out: SuggestHit[] = [];
+  for (const h of hits) {
+    const key = `${h.lat.toFixed(5)},${h.lng.toFixed(5)}|${h.label.toLowerCase()}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(h);
+  }
+  return out;
+}
+
+async function photonSuggest(q: string, lat?: number, lon?: number): Promise<SuggestHit[]> {
   const u = new URL("https://photon.komoot.io/api/");
-  u.searchParams.set("q", query);
+  u.searchParams.set("q", q);
   u.searchParams.set("limit", "8");
   u.searchParams.set("lang", "en");
+  u.searchParams.set("location_bias_scale", "0.1");
   if (Number.isFinite(lat) && Number.isFinite(lon)) {
     u.searchParams.set("lat", String(lat));
     u.searchParams.set("lon", String(lon));
@@ -58,18 +91,50 @@ export async function suggest(q: string, lat?: number, lon?: number): Promise<Su
   for (const f of data.features || []) {
     const [lng, latN] = f.geometry?.coordinates || [];
     if (!Number.isFinite(latN) || !Number.isFinite(lng)) continue;
+    const props = f.properties || {};
     out.push({
-      label: fmtPhoton(f.properties || {}, query),
+      label: fmtPhoton(props, q),
       lat: latN,
       lng,
+      kind: String(props.osm_value || props.type || ""),
     });
   }
   return out;
 }
 
+export async function suggest(q: string, lat?: number, lon?: number): Promise<SuggestHit[]> {
+  const query = q.trim();
+  if (query.length < 2) return [];
+  try {
+    return dedupe(await photonSuggest(query, lat, lon)).slice(0, 8);
+  } catch {
+    return [];
+  }
+}
+
 export async function geocode(q: string, lat?: number, lon?: number): Promise<SuggestHit | null> {
   const hits = await suggest(q, lat, lon);
   return hits[0] || null;
+}
+
+export async function reverse(lat: number, lon: number): Promise<SuggestHit | null> {
+  const u = new URL("https://nominatim.openstreetmap.org/reverse");
+  u.searchParams.set("lat", String(lat));
+  u.searchParams.set("lon", String(lon));
+  u.searchParams.set("format", "jsonv2");
+  u.searchParams.set("addressdetails", "1");
+  u.searchParams.set("zoom", "18");
+  const data = (await getJson(u.toString(), 8000)) as {
+    display_name?: string;
+    name?: string;
+    lat?: string;
+    lon?: string;
+    address?: Record<string, string>;
+  };
+  const la = Number(data.lat);
+  const ln = Number(data.lon);
+  if (!Number.isFinite(la) || !Number.isFinite(ln)) return { label: "Your location", lat, lng: lon, kind: "gps" };
+  return { label: fmtNominatim(data) || "Your location", lat: la, lng: ln, kind: "gps" };
 }
 
 type LngLat = { lat: number; lng: number };
@@ -102,7 +167,7 @@ function parseRoute(json: {
   waypoints?: Array<{ waypoint_index?: number }>;
 }): RouteResult {
   const r = json.routes?.[0] || json.trips?.[0];
-  if (!r) throw new Error("No route found");
+  if (!r) throw new Error("No driving route found");
   const geometry: [number, number][] = (r.geometry?.coordinates || []).map((c) => [c[1], c[0]]);
   let order: number[] | undefined;
   if (json.waypoints?.length) {
@@ -122,12 +187,30 @@ function parseRoute(json: {
   };
 }
 
-export async function drivingRoute(pts: LngLat[]): Promise<RouteResult> {
-  if (pts.length < 2) throw new Error("Need two stops");
+async function routeOnce(pts: LngLat[]) {
   const url =
     `https://router.project-osrm.org/route/v1/driving/${coordStr(pts)}` +
     `?overview=full&geometries=geojson&alternatives=false`;
-  return parseRoute(await getJson(url, 20000));
+  return parseRoute(await getJson(url, 25000));
+}
+
+export async function drivingRoute(pts: LngLat[]): Promise<RouteResult> {
+  if (pts.length < 2) throw new Error("Need two stops");
+  if (pts.length <= 80) return routeOnce(pts);
+  const geometry: [number, number][] = [];
+  const legs: { distanceM: number; durationS: number }[] = [];
+  let distanceM = 0;
+  let durationS = 0;
+  for (let i = 0; i < pts.length - 1; i += 70) {
+    const slice = pts.slice(i, Math.min(pts.length, i + 71));
+    const part = await routeOnce(slice);
+    if (geometry.length && part.geometry.length) part.geometry.shift();
+    geometry.push(...part.geometry);
+    legs.push(...part.legs);
+    distanceM += part.distanceM;
+    durationS += part.durationS;
+  }
+  return { distanceM, durationS, geometry, legs };
 }
 
 export async function optimizedTrip(
@@ -135,6 +218,7 @@ export async function optimizedTrip(
   opts: { roundtrip: boolean; keepEnds: boolean },
 ): Promise<RouteResult> {
   if (pts.length < 2) throw new Error("Need two stops");
+  if (pts.length > 80) throw new Error("Optimize works up to 80 stops — route still has no cap");
   const params = new URLSearchParams({
     overview: "full",
     geometries: "geojson",
@@ -143,5 +227,17 @@ export async function optimizedTrip(
   });
   params.set("destination", opts.roundtrip || !opts.keepEnds ? "any" : "last");
   const url = `https://router.project-osrm.org/trip/v1/driving/${coordStr(pts)}?${params}`;
-  return parseRoute(await getJson(url, 25000));
+  const trip = parseRoute(await getJson(url, 30000));
+  if (!trip.order) return trip;
+  const ordered = trip.order.map((i) => pts[i]).filter(Boolean);
+  if (ordered.length >= 2) {
+    try {
+      const driven = await drivingRoute(opts.roundtrip ? [...ordered, ordered[0]] : ordered);
+      driven.order = trip.order;
+      return driven;
+    } catch {
+      return trip;
+    }
+  }
+  return trip;
 }
