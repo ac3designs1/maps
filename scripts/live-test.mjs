@@ -39,16 +39,16 @@ try {
   // Static
   {
     const { status, text } = await req("/");
-    if (status === 200 && text.includes("app.js?v=35") && text.includes("styles.css?v=35")) ok("GET /", "cache v=35");
+    if (status === 200 && text.includes("app.js?v=36") && text.includes("styles.css?v=36")) ok("GET /", "cache v=36");
     else fail("GET /", "status " + status);
   }
   {
-    const { status, text } = await req("/styles.css?v=35");
+    const { status, text } = await req("/styles.css?v=36");
     if (status === 200 && text.includes(".screen-planner") && text.includes("pointer-events:none") && text.includes(".action-chip.is-hot") && text.includes(".mrow.checked")) ok("GET styles.css");
     else fail("GET styles.css", "status " + status);
   }
   {
-    const { status, text } = await req("/app.js?v=35");
+    const { status, text } = await req("/app.js?v=36");
     if (status === 200 && text.includes("function pinHereFirst") && text.includes("hereDisplay")) ok("GET app.js");
     else fail("GET app.js", "status " + status);
     const guards = ["function backToList", "lockStart:isHereStop", "Where to?", "readOnly", "is-hot"];
@@ -318,7 +318,7 @@ try {
   // IDs in HTML exist in JS
   {
     const html = (await req("/")).text;
-    const js = (await req("/app.js?v=35")).text;
+    const js = (await req("/app.js?v=36")).text;
     const ids = [...html.matchAll(/id="([^"]+)"/g)].map(m => m[1]);
     const missing = ids.filter(id => !js.includes('"' + id + '"') && !js.includes("'" + id + "'") && !["mapToggleIcon","mapToggleLabel","navTitle","navSub","continueTitle","continueSub","installTitle","installSub","iosShareWord"].includes(id));
     // map/list structural ids that JS must touch
