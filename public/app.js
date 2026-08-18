@@ -397,6 +397,15 @@ function applyHit(hit) {
   const input = $("stopList").querySelector(`.stop-input[data-id="${stop.id}"]`);
   if (input) { input.value=hit.label; input.classList.remove("unresolved"); }
   updateRowMeta(); scheduleSave(); scheduleRoute(false); buzz();
+  // Auto-advance to next empty stop
+  const idx = S.trip.stops.findIndex(s=>s.id===stop.id);
+  const next = S.trip.stops.slice(idx+1).find(s=>!(s.label||s.query).trim());
+  if (next) {
+    setTimeout(() => {
+      const ni = $("stopList").querySelector(`.stop-input[data-id="${next.id}"]`);
+      ni?.focus();
+    }, 80);
+  }
 }
 
 $("suggestBox").addEventListener("click", async e => {
@@ -427,16 +436,19 @@ function stopKind(i,n) {
   if (i===n-1&&!S.trip?.roundtrip) return "is-dest";
   return "";
 }
+function stopLabel(i,n) {
+  if (n===2) return i===0 ? "A" : "B";
+  return String(i+1);
+}
 
 function makeRow(s,i,n) {
   const row = document.createElement("div");
   row.className = `stop-row ${stopKind(i,n)}`.trim();
   row.dataset.id = s.id;
 
-  const dotClasses = `stop-dot`;
   row.innerHTML = `
     <div class="stop-dot-col">
-      <div class="${dotClasses}">${i+1}</div>
+      <div class="stop-dot">${stopLabel(i,n)}</div>
       <div class="stop-line"></div>
     </div>
     <div class="stop-input-col">
@@ -468,7 +480,7 @@ function updateRowMeta() {
     const s = S.trip.stops[i];
     if (!s) return;
     row.className = `stop-row ${stopKind(i,n)}${row.classList.contains("dragging")?" dragging":""}`.trim();
-    row.querySelector(".stop-dot").textContent = String(i+1);
+    row.querySelector(".stop-dot").textContent = stopLabel(i,n);
     const input = row.querySelector(".stop-input");
     if (document.activeElement!==input) {
       const val = s.query||s.label||"";
