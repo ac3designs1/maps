@@ -392,7 +392,7 @@ async function lookup(q) {
   u.searchParams.set("q", q);
   u.searchParams.set("lat", String(state.here?.lat ?? state.bias.lat));
   u.searchParams.set("lon", String(state.here?.lng ?? state.bias.lng));
-  const data = await api(u.pathname + u.search, { signal: state.suggestAc.signal, timeout: 8000 });
+  const data = await api(u.pathname + u.search, { signal: state.suggestAc.signal, timeout: 14000 });
   return data.hits || [];
 }
 
@@ -574,7 +574,7 @@ function bindStopInput(input) {
           .map((h, i) => {
             const title = esc(h.name || h.label.split(",")[0]);
             const sub = esc(h.label);
-            const tag = h.kind === "business" ? "Business · Australia" : "Australia";
+            const tag = h.kind === "business" ? "Business" : "Australia";
             return `<button type="button" data-i="${i}"><span class="ico"><svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor"><path d="M12 2a7 7 0 0 0-7 7c0 5 7 13 7 13s7-8 7-13a7 7 0 0 0-7-7zm0 9.5A2.5 2.5 0 1 1 12 6a2.5 2.5 0 0 1 0 5.5z"/></svg></span><span><strong>${title}</strong><small>${sub}<br>${tag}</small></span></button>`;
           })
           .join("");
@@ -584,7 +584,7 @@ function bindStopInput(input) {
       } catch (err) {
         if (!err.cancelled) hideSuggest();
       }
-    }, 170);
+    }, 220);
   });
   input.addEventListener("keydown", async (e) => {
     if (e.key !== "Enter") return;

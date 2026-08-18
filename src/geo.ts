@@ -225,6 +225,17 @@ function rankHits(query: string, hits: SuggestHit[], lat?: number, lon?: number)
 export async function suggest(q: string, lat?: number, lon?: number): Promise<SuggestHit[]> {
   const query = q.trim();
   if (query.length < 2) return [];
+
+  const { googleSuggest, hasGoogleKey } = await import("./google.ts");
+  if (hasGoogleKey()) {
+    try {
+      const google = await googleSuggest(query, lat, lon);
+      if (google.length) return google.slice(0, 8);
+    } catch (err) {
+      console.warn("Google suggest fallback:", err instanceof Error ? err.message : err);
+    }
+  }
+
   const [photon, nomi] = await Promise.allSettled([
     photonSuggest(query, lat, lon),
     nominatimSuggest(query, lat, lon),
@@ -239,6 +250,17 @@ export async function suggest(q: string, lat?: number, lon?: number): Promise<Su
 export async function geocode(q: string, lat?: number, lon?: number): Promise<SuggestHit | null> {
   const query = q.trim();
   if (query.length < 2) return null;
+
+  const { googleGeocode, hasGoogleKey } = await import("./google.ts");
+  if (hasGoogleKey()) {
+    try {
+      const hit = await googleGeocode(query, lat, lon);
+      if (hit) return hit;
+    } catch (err) {
+      console.warn("Google geocode fallback:", err instanceof Error ? err.message : err);
+    }
+  }
+
   try {
     const photon = (await photonSuggest(query, lat, lon)).filter((h) => inAustralia(h.lat, h.lng));
     if (photon[0]) return rankHits(query, photon, lat, lon)[0];
@@ -254,6 +276,16 @@ export async function geocode(q: string, lat?: number, lon?: number): Promise<Su
 }
 
 export async function reverse(lat: number, lon: number): Promise<SuggestHit | null> {
+  const { googleReverse, hasGoogleKey } = await import("./google.ts");
+  if (hasGoogleKey()) {
+    try {
+      const hit = await googleReverse(lat, lon);
+      if (hit) return hit;
+    } catch (err) {
+      console.warn("Google reverse fallback:", err instanceof Error ? err.message : err);
+    }
+  }
+
   const u = new URL("https://nominatim.openstreetmap.org/reverse");
   u.searchParams.set("lat", String(lat));
   u.searchParams.set("lon", String(lon));

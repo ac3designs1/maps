@@ -7,6 +7,7 @@ import { fileURLToPath } from "node:url";
 import { randomUUID } from "node:crypto";
 import { allTrips, deleteTrip, getTrip, listTrips, upsertTrip, type Trip } from "./trips.ts";
 import { drivingRoute, geocode, optimizedTrip, reverse, suggest } from "./geo.ts";
+import { hasGoogleKey } from "./google.ts";
 
 const root = path.join(path.dirname(fileURLToPath(import.meta.url)), "..");
 const pub = path.join(root, "public");
@@ -113,7 +114,7 @@ const server = http.createServer(async (req, res) => {
     }
 
     if (u.pathname === "/health" && req.method === "GET") {
-      return send(res, 200, { ok: true });
+      return send(res, 200, { ok: true, googlePlaces: hasGoogleKey() });
     }
 
     if (u.pathname === "/api/lan" && req.method === "GET") {
@@ -244,6 +245,11 @@ server.keepAliveTimeout = 65_000;
 server.headersTimeout = 70_000;
 server.listen(PORT, "0.0.0.0", () => {
   console.log(`Trip planner listening on 0.0.0.0:${PORT}`);
+  if (!hasGoogleKey()) {
+    console.warn("GOOGLE_MAPS_API_KEY not set — search uses OpenStreetMap (limited business names).");
+  } else {
+    console.log("Google Places search enabled.");
+  }
   if (!process.env.RENDER) {
     const ip = lanIPv4();
     console.log(`  Phone (same Wi‑Fi):  http://${ip}:${PORT}`);

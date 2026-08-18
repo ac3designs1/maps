@@ -12,3 +12,5 @@ services:
         value: "22"
       - key: DATA_DIR
         value: /opt/render/project/src/data
+      - key: GOOGLE_MAPS_API_KEY
+        sync: false

@@ -20,6 +20,19 @@ Live URL after Render: your `onrender.com` link. On the phone: Safari → Share 
 
 Trips are saved on the phone (so they survive Render restarts). The server also stores a backup when it can.
 
+## Google search (recommended)
+
+Autocomplete uses **Google Places** when a key is set — much better for shops, businesses, and addresses in Australia.
+
+1. [Google Cloud Console](https://console.cloud.google.com/) → APIs & Services → **Enable**:
+   - **Places API (New)**
+   - **Geocoding API**
+2. Create an API key → restrict it (HTTP referrers for your `onrender.com` URL, or IP for server-only).
+3. Set env var **`GOOGLE_MAPS_API_KEY`** on Render (Environment) or locally in `.env` / shell.
+4. Redeploy. `/health` returns `googlePlaces: true` when the key is loaded.
+
+Without a key, search falls back to OpenStreetMap (many businesses won’t appear).
+
 ## Local
 
 ```
