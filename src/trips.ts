@@ -24,6 +24,9 @@ export type Trip = {
   updatedAt: number;
   distanceM?: number;
   durationS?: number;
+  starred?: boolean;
+  avoidTolls?: boolean;
+  avoidFerries?: boolean;
 };
 
 type Store = { trips: Trip[] };
@@ -67,6 +70,7 @@ export async function listTrips() {
         .join(" → "),
       distanceM: t.distanceM || 0,
       durationS: t.durationS || 0,
+      starred: !!t.starred,
     }));
 }
 

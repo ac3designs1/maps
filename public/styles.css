@@ -13,6 +13,22 @@
   --sab: env(safe-area-inset-bottom, 0px);
   --kb: 0px;
   --sans: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", Roboto, sans-serif;
+  color-scheme: light dark;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --ink: #f5f5f7;
+    --muted: #a1a1a6;
+    --hair: rgba(255,255,255,.14);
+    --fill: #000000;
+    --card: #1c1c1e;
+    --shadow: 0 1px 2px rgba(0,0,0,.4), 0 8px 24px rgba(0,0,0,.45);
+  }
+  .chip, .search-row input, .sheet textarea, .field input, .suggest-pop, .suggest-pop button, .planner, .sheet-panel, .map-fab, .empty-hero, .continue, .nav-bar { background: #1c1c1e; }
+  .chip, .search-row input { background: #2c2c2e; }
+  .nav-bar { background: rgba(26,115,232,.18); }
+  .chip:active, .trip-row:active, .stop-row.dragging { background: #2c2c2e; }
+  .eta strong.pulse { color: var(--muted); }
 }
 * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
 html, body {
@@ -267,11 +283,33 @@ button { cursor: pointer; }
   padding: 8px 12px;
   font-size: 13px; font-weight: 650;
 }
-.chip:active { background: #f2f2f7; }
-.chip.busy { color: var(--blue); background: #e8f0fe; border-color: transparent; }
+.chip:active { background: var(--fill); }
+.chip.busy { color: var(--blue); background: rgba(26,115,232,.14); border-color: transparent; }
 .map-credit {
-  margin: 4px 16px 0; font-size: 10px; color: #9aa0a6; flex: 0 0 auto;
+  margin: 4px 16px 0; font-size: 10px; color: var(--muted); flex: 0 0 auto; opacity: 0.7;
 }
+.net-banner {
+  margin: 0 16px 10px;
+  padding: 10px 12px;
+  border-radius: 12px;
+  background: #fff3cd;
+  color: #6b5400;
+  font-size: 13px;
+}
+.continue {
+  margin: 0 16px 12px;
+  padding: 14px 16px;
+  border: 0;
+  border-radius: 14px;
+  background: var(--card);
+  box-shadow: 0 1px 0 var(--hair);
+  text-align: left;
+  width: calc(100% - 32px);
+  display: block;
+}
+.continue strong { display: block; font-size: 16px; }
+.continue span { display: block; color: var(--muted); font-size: 13px; margin-top: 3px; }
+.star { color: #f4b400; }
 
 .suggest-pop {
   position: absolute; left: 10px; right: 10px; z-index: 12;
@@ -335,11 +373,19 @@ button { cursor: pointer; }
 .toast {
   position: fixed; left: 50%; bottom: calc(20px + var(--sab));
   transform: translateX(-50%);
-  background: rgba(28,28,30,.92); color: #fff;
-  padding: 10px 16px; border-radius: 14px;
+  background: rgba(28,28,30,.94); color: #fff;
+  padding: 10px 12px 10px 16px; border-radius: 14px;
   font-size: 13px; font-weight: 550; z-index: 40;
-  max-width: 88vw; text-align: center;
+  max-width: 88vw;
+  display: flex; align-items: center; gap: 10px;
   backdrop-filter: blur(12px);
+}
+.toast-act {
+  border: 0; background: transparent; color: #8ab4f8;
+  font-weight: 750; font-size: 13px; padding: 4px 6px;
+}
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { transition: none !important; animation: none !important; }
 }
 
 .leaflet-control-attribution { display: none !important; }

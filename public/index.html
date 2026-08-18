@@ -7,13 +7,15 @@
   <meta name="mobile-web-app-capable" content="yes" />
   <meta name="apple-mobile-web-app-status-bar-style" content="default" />
   <meta name="apple-mobile-web-app-title" content="Trips" />
-  <meta name="theme-color" content="#f2f2f7" />
+  <meta name="theme-color" content="#f2f2f7" media="(prefers-color-scheme: light)" />
+  <meta name="theme-color" content="#000000" media="(prefers-color-scheme: dark)" />
+  <meta name="color-scheme" content="light dark" />
   <link rel="manifest" href="manifest.webmanifest" />
   <link rel="apple-touch-icon" href="icon.svg" />
   <link rel="icon" href="icon.svg" />
   <title>Trips</title>
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
-  <link rel="stylesheet" href="styles.css?v=5" />
+  <link rel="stylesheet" href="styles.css?v=7" />
 </head>
 <body>
   <div id="map"></div>
@@ -32,6 +34,8 @@
       <svg class="search-ico" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3-3"/></svg>
       <input id="tripSearch" type="search" placeholder="Search" enterkeyhint="search" />
     </div>
+    <div id="netBanner" class="net-banner hidden">You’re offline — trips still save on this phone.</div>
+    <button type="button" id="continueCard" class="continue hidden"></button>
     <div id="tripList" class="trip-list grouped"></div>
     <div id="tripEmpty" class="empty-hero">
       <div class="empty-art" aria-hidden="true">
@@ -73,6 +77,7 @@
         <button type="button" id="btnPaste" class="chip">Paste</button>
         <button type="button" id="btnReverse" class="chip">Reverse</button>
         <button type="button" id="btnOptimize" class="chip">Optimize</button>
+        <button type="button" id="btnShare" class="chip">Share</button>
         <button type="button" id="btnMore" class="chip">More</button>
       </div>
       <p class="map-credit">Map data © OpenStreetMap</p>
@@ -88,8 +93,11 @@
     </div>
   </div>
 
-  <div id="toast" class="toast hidden"></div>
+  <div id="toast" class="toast hidden">
+    <span id="toastMsg"></span>
+    <button type="button" id="toastAct" class="toast-act hidden">Undo</button>
+  </div>
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-  <script src="app.js?v=5"></script>
+  <script src="app.js?v=7"></script>
 </body>
 </html>

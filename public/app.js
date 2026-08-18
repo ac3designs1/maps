@@ -1,6 +1,8 @@
 /* global L */
 const $ = (id) => document.getElementById(id);
 const STORE_KEY = "maps.trips.v1";
+const PINS_KEY = "maps.pins.v1";
+const LAST_KEY = "maps.lastTrip";
 
 const state = {
   trips: [],
@@ -25,6 +27,7 @@ const state = {
   snap: "mid",
   navI: 0,
   navigating: false,
+  undo: null,
 };
 
 function buzz(ms = 8) {
@@ -35,13 +38,35 @@ function buzz(ms = 8) {
   }
 }
 
-function toast(msg) {
+function toast(msg, undoFn) {
   const el = $("toast");
-  el.textContent = msg;
+  $("toastMsg").textContent = msg;
+  const act = $("toastAct");
+  if (undoFn) {
+    state.undo = undoFn;
+    act.classList.remove("hidden");
+    act.textContent = "Undo";
+  } else {
+    state.undo = null;
+    act.classList.add("hidden");
+  }
   el.classList.remove("hidden");
   clearTimeout(toast._t);
-  toast._t = setTimeout(() => el.classList.add("hidden"), 2200);
+  toast._t = setTimeout(() => {
+    el.classList.add("hidden");
+    state.undo = null;
+    act.classList.add("hidden");
+  }, undoFn ? 4500 : 2400);
 }
+
+$("toastAct").onclick = () => {
+  if (state.undo) {
+    state.undo();
+    state.undo = null;
+    $("toastAct").classList.add("hidden");
+    $("toast").classList.add("hidden");
+  }
+};
 
 async function api(path, opts = {}) {
   const ac = opts.signal || new AbortController();
@@ -142,6 +167,34 @@ function setSnap(which) {
   setTimeout(() => state.map?.invalidateSize(), 200);
 }
 
+function readPins() {
+  try {
+    return JSON.parse(localStorage.getItem(PINS_KEY) || "{}");
+  } catch {
+    return {};
+  }
+}
+
+function writePins(pins) {
+  try {
+    localStorage.setItem(PINS_KEY, JSON.stringify(pins));
+  } catch {
+    /* ignore */
+  }
+}
+
+function pinHit(key) {
+  const p = readPins()[key];
+  if (!p || !Number.isFinite(p.lat)) return null;
+  return { label: p.label, lat: p.lat, lng: p.lng, kind: "pin", name: p.label.split(",")[0] };
+}
+
+function setPin(key, hit) {
+  const pins = readPins();
+  pins[key] = { label: hit.label, lat: hit.lat, lng: hit.lng };
+  writePins(pins);
+}
+
 function summarize(t) {
   const filled = (t.stops || []).filter((s) => s.label || s.query);
   return {
@@ -153,6 +206,7 @@ function summarize(t) {
     preview: filled.slice(0, 3).map((s) => s.label || s.query).join(" → "),
     distanceM: t.distanceM || 0,
     durationS: t.durationS || 0,
+    starred: !!t.starred,
   };
 }
 
@@ -190,6 +244,9 @@ function emptyTrip() {
     title: "Untitled trip",
     roundtrip: false,
     keepEnds: true,
+    avoidTolls: false,
+    avoidFerries: false,
+    starred: false,
     createdAt: now,
     updatedAt: now,
     stops: [
@@ -197,6 +254,28 @@ function emptyTrip() {
       { id: uid(), query: "", label: "", lat: null, lng: null },
     ],
   };
+}
+
+function rememberLast(id) {
+  try {
+    if (id) localStorage.setItem(LAST_KEY, id);
+  } catch {
+    /* ignore */
+  }
+}
+
+function renderContinue() {
+  const card = $("continueCard");
+  const lastId = localStorage.getItem(LAST_KEY);
+  const trip = lastId && (state.records || []).find((t) => t.id === lastId);
+  if (!trip || $("tripScreen").classList.contains("hidden") === false) {
+    card.classList.add("hidden");
+    return;
+  }
+  card.className = "continue";
+  card.innerHTML = `<strong>Continue</strong><span>${esc(trip.title || "Untitled trip")} · ${filledStops(trip).length} stops</span>`;
+  card.onclick = () => openTrip(trip.id);
+  card.classList.remove("hidden");
 }
 
 function setRecords(trips) {
@@ -207,15 +286,18 @@ function setRecords(trips) {
 
 function renderList() {
   const q = state.filter.trim().toLowerCase();
-  const rows = state.trips.filter((t) => !q || `${t.title} ${t.preview}`.toLowerCase().includes(q));
+  const rows = state.trips
+    .filter((t) => !q || `${t.title} ${t.preview}`.toLowerCase().includes(q))
+    .sort((a, b) => (a.starred ? 0 : 1) - (b.starred ? 0 : 1) || b.updatedAt - a.updatedAt);
   $("tripEmpty").classList.toggle("hidden", rows.length > 0);
   $("tripList").innerHTML = rows
     .map((t) => {
       const stats = t.durationS ? fmtDur(t.durationS) : relTime(t.updatedAt);
+      const star = t.starred ? '<span class="star">★</span> ' : "";
       return `<button type="button" class="trip-row" data-id="${t.id}">
         <span class="pin">${t.stopCount || 0}</span>
         <span>
-          <strong>${esc(t.title || "Untitled trip")}</strong>
+          <strong>${star}${esc(t.title || "Untitled trip")}</strong>
           <span class="preview">${esc(t.preview || "No stops yet")}</span>
         </span>
         <span class="meta">${esc(stats)}<br>${t.stopCount || 0} stops</span>
@@ -223,6 +305,7 @@ function renderList() {
       </button>`;
     })
     .join("");
+  renderContinue();
 }
 
 async function loadTrips() {
@@ -238,12 +321,18 @@ async function loadTrips() {
 }
 
 function openTrip(id) {
-  const trip = (state.records || readLocal()).find((t) => t.id === id);
-  if (!trip) return toast("Trip not found");
-  state.trip = trip;
+  const raw = (state.records || readLocal()).find((t) => t.id === id);
+  if (!raw) return toast("Trip not found");
+  const base = emptyTrip();
+  state.trip = {
+    ...base,
+    ...raw,
+    stops: raw.stops?.length ? raw.stops : base.stops,
+  };
   state.route = null;
   state.navigating = false;
   state.navI = 0;
+  rememberLast(id);
   syncStops(true);
   showTrip();
   scheduleRoute(false);
@@ -279,6 +368,7 @@ function saveTrip() {
   state.trip.updatedAt = Date.now();
   setRecords(mergeTrips([state.trip], state.records || readLocal()));
   renderList();
+  rememberLast(state.trip.id);
   api(`/api/trips/${state.trip.id}`, { method: "PUT", body: JSON.stringify({ trip: state.trip }) }).catch(() => {});
 }
 
@@ -511,9 +601,33 @@ function bindStopInput(input) {
 }
 
 function showHereSuggest() {
-  $("suggestPop").innerHTML = `<button type="button" data-me="1"><span class="ico">◎</span><span><strong>Your location</strong><small>${esc(
-    state.hereLabel,
-  )}</small></span></button>`;
+  const pins = readPins();
+  const rows = [];
+  if (state.here) {
+    rows.push(
+      `<button type="button" data-me="1"><span class="ico">◎</span><span><strong>Your location</strong><small>${esc(
+        state.hereLabel,
+      )}</small></span></button>`,
+    );
+  }
+  const home = pins.home;
+  const work = pins.work;
+  if (home) {
+    rows.push(
+      `<button type="button" data-pin="home"><span class="ico">🏠</span><span><strong>Home</strong><small>${esc(
+        home.label,
+      )}</small></span></button>`,
+    );
+  }
+  if (work) {
+    rows.push(
+      `<button type="button" data-pin="work"><span class="ico">💼</span><span><strong>Work</strong><small>${esc(
+        work.label,
+      )}</small></span></button>`,
+    );
+  }
+  if (!rows.length) return;
+  $("suggestPop").innerHTML = rows.join("");
   $("suggestPop").classList.remove("hidden");
   placeSuggest();
 }
@@ -524,12 +638,19 @@ $("stopList").addEventListener("click", (e) => {
   const i = state.trip.stops.findIndex((s) => s.id === btn.dataset.id);
   if (i < 0) return;
   buzz();
+  const prev = JSON.parse(JSON.stringify(state.trip.stops));
   if (state.trip.stops.length <= 2) {
     state.trip.stops[i] = { id: uid(), query: "", label: "", lat: null, lng: null };
   } else state.trip.stops.splice(i, 1);
   syncStops(true);
   scheduleSave();
   scheduleRoute(false);
+  toast("Stop removed", () => {
+    state.trip.stops = prev;
+    syncStops(true);
+    scheduleSave();
+    scheduleRoute(false);
+  });
 });
 
 $("stopList").addEventListener(
@@ -580,6 +701,12 @@ $("suggestPop").addEventListener("click", async (e) => {
     await onSuggestPick({ label: state.hereLabel, lat: state.here.lat, lng: state.here.lng });
     return;
   }
+  if (btn.dataset.pin) {
+    const hit = pinHit(btn.dataset.pin);
+    if (!hit) return toast("Set this in More → Places");
+    await onSuggestPick(hit);
+    return;
+  }
   const hit = ($("suggestPop")._hits || [])[Number(btn.dataset.i)];
   if (hit) await onSuggestPick(hit);
 });
@@ -610,6 +737,7 @@ $("btnOptimize").onclick = () => {
   $("btnOptimize").classList.add("busy");
   scheduleRoute(true);
 };
+$("btnShare").onclick = () => shareTrip();
 $("btnMore").onclick = () => openModal("Trip", moreBody());
 $("btnBack").onclick = () => {
   hideSuggest();
@@ -627,6 +755,44 @@ $("tripList").onclick = (e) => {
   const row = e.target.closest("[data-id]");
   if (row) openTrip(row.dataset.id);
 };
+
+(function tripSwipeDelete() {
+  const list = $("tripList");
+  let sx = 0;
+  let sy = 0;
+  let row = null;
+  list.addEventListener(
+    "touchstart",
+    (e) => {
+      row = e.target.closest(".trip-row");
+      if (!row) return;
+      sx = e.changedTouches[0].clientX;
+      sy = e.changedTouches[0].clientY;
+    },
+    { passive: true },
+  );
+  list.addEventListener(
+    "touchend",
+    (e) => {
+      if (!row) return;
+      const dx = e.changedTouches[0].clientX - sx;
+      const dy = Math.abs(e.changedTouches[0].clientY - sy);
+      if (dx < -72 && dy < 48) {
+        const id = row.dataset.id;
+        const prev = (state.records || []).slice();
+        setRecords(prev.filter((t) => t.id !== id));
+        api(`/api/trips/${id}`, { method: "DELETE" }).catch(() => {});
+        renderList();
+        toast("Trip deleted", () => {
+          setRecords(prev);
+          renderList();
+        });
+      }
+      row = null;
+    },
+    { passive: true },
+  );
+})();
 $("btnStart").onclick = () => {
   state.navigating = true;
   state.navI = 0;
@@ -673,15 +839,103 @@ function pasteBody() {
 
 function moreBody() {
   const t = state.trip;
+  const pins = readPins();
   return `<label class="field">Name
       <input id="renameTitle" value="${esc(t.title || "")}" />
     </label>
+    <button type="button" class="sheet-btn" data-more="star">${t.starred ? "★ " : ""}Star trip</button>
     <button type="button" class="sheet-btn" data-more="round">${t.roundtrip ? "✓ " : ""}Round trip</button>
     <button type="button" class="sheet-btn" data-more="ends">${t.keepEnds ? "✓ " : ""}Keep start &amp; end when optimizing</button>
+    <button type="button" class="sheet-btn" data-more="tolls">${t.avoidTolls ? "✓ " : ""}Avoid tolls</button>
+    <button type="button" class="sheet-btn" data-more="ferries">${t.avoidFerries ? "✓ " : ""}Avoid ferries</button>
+    <button type="button" class="sheet-btn" data-more="refresh">Refresh route</button>
+    <button type="button" class="sheet-btn" data-more="clear">Clear all stops</button>
+    <button type="button" class="sheet-btn" data-more="home">Set Home — ${esc((pins.home?.label || "not set").split(",")[0])}</button>
+    <button type="button" class="sheet-btn" data-more="work">Set Work — ${esc((pins.work?.label || "not set").split(",")[0])}</button>
     <button type="button" class="sheet-btn" data-more="dup">Duplicate trip</button>
+    <button type="button" class="sheet-btn" data-more="export">Export backup</button>
+    <button type="button" class="sheet-btn" data-more="import">Import backup</button>
     <button type="button" class="sheet-btn" data-more="apple">Open in Apple Maps</button>
     <button type="button" class="sheet-btn" data-more="google">Open in Google Maps</button>
     <button type="button" class="sheet-btn bad" data-more="del">Delete trip</button>`;
+}
+
+function shareTrip() {
+  const pts = geocodedStops();
+  if (pts.length < 2) return toast("Add a route first");
+  const lines = pts.map((s, i) => `${i + 1}. ${s.label || s.query}`);
+  const head = state.trip.title && state.trip.title !== "Untitled trip" ? state.trip.title : "Trip";
+  const stats = state.route ? `${fmtDur(state.route.durationS)} · ${fmtKm(state.route.distanceM)}` : "";
+  const sharePayload = {
+    title: head,
+    stops: pts.map((s) => ({ label: s.label || s.query, lat: s.lat, lng: s.lng })),
+  };
+  const imp = encodeURIComponent(JSON.stringify(sharePayload));
+  const link = imp.length < 1800 ? `${location.origin}${location.pathname}?import=${imp}` : "";
+  const text = `${head}\n${stats}\n\n${lines.join("\n")}${link ? `\n\n${link}` : ""}`;
+  if (navigator.share) {
+    navigator.share({ title: head, text, url: link || undefined }).catch(() => {});
+    return;
+  }
+  navigator.clipboard?.writeText(text).then(() => toast(link ? "Copied trip + link" : "Copied to clipboard"));
+}
+
+function importBackupFile(file) {
+  const reader = new FileReader();
+  reader.onload = () => {
+    try {
+      const data = JSON.parse(String(reader.result || "{}"));
+      const incoming = Array.isArray(data.trips) ? data.trips : data.stops ? [data] : [];
+      if (!incoming.length) return toast("No trips in file");
+      const normalized = incoming.map((t) => {
+        const trip = emptyTrip();
+        return {
+          ...trip,
+          ...t,
+          id: uid(),
+          stops: (t.stops || []).map((s) => ({
+            id: uid(),
+            query: s.label || s.query || "",
+            label: s.label || s.query || "",
+            lat: s.lat ?? null,
+            lng: s.lng ?? null,
+          })),
+          updatedAt: Date.now(),
+          createdAt: t.createdAt || Date.now(),
+        };
+      });
+      if (data.pins && typeof data.pins === "object") writePins({ ...readPins(), ...data.pins });
+      setRecords(mergeTrips(normalized, state.records || readLocal()));
+      renderList();
+      toast(`Imported ${normalized.length} trip${normalized.length === 1 ? "" : "s"}`);
+    } catch {
+      toast("Couldn’t read that file");
+    }
+  };
+  reader.readAsText(file);
+}
+
+function pickBackupFile() {
+  const input = document.createElement("input");
+  input.type = "file";
+  input.accept = "application/json,.json";
+  input.onchange = () => {
+    const file = input.files?.[0];
+    if (file) importBackupFile(file);
+  };
+  input.click();
+}
+
+function exportBackup() {
+  const blob = new Blob([JSON.stringify({ trips: state.records || readLocal(), pins: readPins() }, null, 2)], {
+    type: "application/json",
+  });
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(blob);
+  a.download = `trips-backup-${new Date().toISOString().slice(0, 10)}.json`;
+  a.click();
+  URL.revokeObjectURL(a.href);
+  toast("Backup saved");
 }
 
 $("sheetBody").addEventListener("click", (e) => {
@@ -690,6 +944,64 @@ $("sheetBody").addEventListener("click", (e) => {
   const more = e.target.closest("[data-more]");
   if (!more) return;
   const act = more.dataset.more;
+  if (act === "star") {
+    state.trip.starred = !state.trip.starred;
+    closeModal();
+    scheduleSave();
+    renderList();
+    toast(state.trip.starred ? "Starred" : "Unstarred");
+  }
+  if (act === "tolls") {
+    state.trip.avoidTolls = !state.trip.avoidTolls;
+    closeModal();
+    scheduleSave();
+    scheduleRoute(false);
+  }
+  if (act === "ferries") {
+    state.trip.avoidFerries = !state.trip.avoidFerries;
+    closeModal();
+    scheduleSave();
+    scheduleRoute(false);
+  }
+  if (act === "refresh") {
+    closeModal();
+    scheduleRoute(false);
+    toast("Refreshing route…");
+  }
+  if (act === "clear") {
+    closeModal();
+    const prev = JSON.parse(JSON.stringify(state.trip.stops));
+    state.trip.stops = [
+      { id: uid(), query: "", label: "", lat: null, lng: null },
+      { id: uid(), query: "", label: "", lat: null, lng: null },
+    ];
+    syncStops(true);
+    scheduleSave();
+    scheduleRoute(false);
+    toast("Stops cleared", () => {
+      state.trip.stops = prev;
+      syncStops(true);
+      scheduleSave();
+      scheduleRoute(false);
+    });
+  }
+  if (act === "home" || act === "work") {
+    const pts = geocodedStops();
+    const last = filledStops().slice(-1)[0];
+    const src = pts.find((s) => s.label || s.query) || last;
+    if (!src?.lat) return toast("Pick a place on the map first");
+    setPin(act, { label: src.label || src.query, lat: src.lat, lng: src.lng });
+    closeModal();
+    toast(act === "home" ? "Home saved" : "Work saved");
+  }
+  if (act === "export") {
+    closeModal();
+    exportBackup();
+  }
+  if (act === "import") {
+    closeModal();
+    pickBackupFile();
+  }
   if (act === "round") {
     state.trip.roundtrip = !state.trip.roundtrip;
     closeModal();
@@ -725,12 +1037,17 @@ $("sheetBody").addEventListener("click", (e) => {
   }
   if (act === "del") {
     const id = state.trip.id;
-    setRecords((state.records || readLocal()).filter((t) => t.id !== id));
+    const prev = (state.records || readLocal()).slice();
+    setRecords(prev.filter((t) => t.id !== id));
     api(`/api/trips/${id}`, { method: "DELETE" }).catch(() => {});
     closeModal();
     state.trip = null;
     showList();
     renderList();
+    toast("Trip deleted", () => {
+      setRecords(prev);
+      renderList();
+    });
   }
 });
 $("sheetBody").addEventListener("input", (e) => {
@@ -809,6 +1126,8 @@ async function routeNow(optimize) {
         optimize,
         roundtrip: state.trip.roundtrip,
         keepEnds: state.trip.keepEnds !== false,
+        avoidTolls: !!state.trip.avoidTolls,
+        avoidFerries: !!state.trip.avoidFerries,
       }),
     });
     if (seq !== state.routeSeq) return;
@@ -1015,4 +1334,38 @@ function locate() {
 
 ensureMap();
 locate();
-loadTrips().catch(() => {});
+
+function importTripFromUrl() {
+  const imp = new URLSearchParams(location.search).get("import");
+  if (!imp) return false;
+  try {
+    const raw = JSON.parse(decodeURIComponent(imp));
+    const trip = emptyTrip();
+    trip.title = raw.title || "Imported trip";
+    trip.stops = (raw.stops || []).map((s) => ({
+      id: uid(),
+      query: s.label || s.query || "",
+      label: s.label || s.query || "",
+      lat: s.lat ?? null,
+      lng: s.lng ?? null,
+    }));
+    if (trip.stops.length < 2) {
+      trip.stops.push({ id: uid(), query: "", label: "", lat: null, lng: null });
+    }
+    setRecords([trip, ...(state.records || [])]);
+    history.replaceState({}, "", location.pathname);
+    openTrip(trip.id);
+    toast("Trip imported");
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+window.addEventListener("online", () => $("netBanner").classList.add("hidden"));
+window.addEventListener("offline", () => $("netBanner").classList.remove("hidden"));
+if (!navigator.onLine) $("netBanner").classList.remove("hidden");
+
+loadTrips().then(() => {
+  if (!importTripFromUrl()) renderContinue();
+}).catch(() => {});

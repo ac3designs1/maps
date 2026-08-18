@@ -323,23 +323,34 @@ function parseRoute(json: {
   };
 }
 
-async function routeOnce(pts: LngLat[]) {
+async function routeOnce(pts: LngLat[], extra = "") {
   const url =
     `https://router.project-osrm.org/route/v1/driving/${coordStr(pts)}` +
-    `?overview=full&geometries=geojson&alternatives=false`;
+    `?overview=full&geometries=geojson&alternatives=false${extra}`;
   return parseRoute(await getJson(url, 25000));
 }
 
-export async function drivingRoute(pts: LngLat[]): Promise<RouteResult> {
+function excludeQs(opts?: { avoidTolls?: boolean; avoidFerries?: boolean }) {
+  const parts: string[] = [];
+  if (opts?.avoidTolls) parts.push("toll");
+  if (opts?.avoidFerries) parts.push("ferry");
+  return parts.length ? `&exclude=${parts.join(",")}` : "";
+}
+
+export async function drivingRoute(
+  pts: LngLat[],
+  opts?: { avoidTolls?: boolean; avoidFerries?: boolean },
+): Promise<RouteResult> {
   if (pts.length < 2) throw new Error("Need two stops");
-  if (pts.length <= 80) return routeOnce(pts);
+  const extra = excludeQs(opts);
+  if (pts.length <= 80) return routeOnce(pts, extra);
   const geometry: [number, number][] = [];
   const legs: { distanceM: number; durationS: number }[] = [];
   let distanceM = 0;
   let durationS = 0;
   for (let i = 0; i < pts.length - 1; i += 70) {
     const slice = pts.slice(i, Math.min(pts.length, i + 71));
-    const part = await routeOnce(slice);
+    const part = await routeOnce(slice, extra);
     if (geometry.length && part.geometry.length) part.geometry.shift();
     geometry.push(...part.geometry);
     legs.push(...part.legs);
@@ -351,10 +362,11 @@ export async function drivingRoute(pts: LngLat[]): Promise<RouteResult> {
 
 export async function optimizedTrip(
   pts: LngLat[],
-  opts: { roundtrip: boolean; keepEnds: boolean },
+  opts: { roundtrip: boolean; keepEnds: boolean; avoidTolls?: boolean; avoidFerries?: boolean },
 ): Promise<RouteResult> {
   if (pts.length < 2) throw new Error("Need two stops");
   if (pts.length > 80) throw new Error("Optimize works up to 80 stops — route still has no cap");
+  const extra = excludeQs(opts);
   const params = new URLSearchParams({
     overview: "full",
     geometries: "geojson",
@@ -362,13 +374,13 @@ export async function optimizedTrip(
     source: "first",
   });
   params.set("destination", opts.roundtrip || !opts.keepEnds ? "any" : "last");
-  const url = `https://router.project-osrm.org/trip/v1/driving/${coordStr(pts)}?${params}`;
+  const url = `https://router.project-osrm.org/trip/v1/driving/${coordStr(pts)}?${params}${extra}`;
   const trip = parseRoute(await getJson(url, 30000));
   if (!trip.order) return trip;
   const ordered = trip.order.map((i) => pts[i]).filter(Boolean);
   if (ordered.length >= 2) {
     try {
-      const driven = await drivingRoute(opts.roundtrip ? [...ordered, ordered[0]] : ordered);
+      const driven = await drivingRoute(opts.roundtrip ? [...ordered, ordered[0]] : ordered, opts);
       driven.order = trip.order;
       return driven;
     } catch {

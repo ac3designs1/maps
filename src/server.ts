@@ -87,6 +87,9 @@ function emptyTrip(): Trip {
     title: "Untitled trip",
     roundtrip: false,
     keepEnds: true,
+    avoidTolls: false,
+    avoidFerries: false,
+    starred: false,
     createdAt: now,
     updatedAt: now,
     stops: [
@@ -174,8 +177,16 @@ const server = http.createServer(async (req, res) => {
       const keepEnds = body.keepEnds !== false;
       try {
         const result = optimize
-          ? await optimizedTrip(pts, { roundtrip, keepEnds })
-          : await drivingRoute(roundtrip ? [...pts, pts[0]] : pts);
+          ? await optimizedTrip(pts, {
+              roundtrip,
+              keepEnds,
+              avoidTolls: !!body.avoidTolls,
+              avoidFerries: !!body.avoidFerries,
+            })
+          : await drivingRoute(roundtrip ? [...pts, pts[0]] : pts, {
+              avoidTolls: !!body.avoidTolls,
+              avoidFerries: !!body.avoidFerries,
+            });
         return send(res, 200, result);
       } catch (err) {
         const raw = err instanceof Error ? err.message : String(err);
