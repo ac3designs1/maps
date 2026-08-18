@@ -359,19 +359,19 @@ function parseRoute(json: {
     geometry?: { coordinates?: number[][] };
     legs?: Array<{ distance: number; duration: number }>;
   }>;
-  waypoints?: Array<{ waypoint_index?: number }>;
+  waypoints?: Array<{ waypoint_index?: number; trips_index?: number }>;
 }): RouteResult {
   const r = json.routes?.[0] || json.trips?.[0];
   if (!r) throw new Error("No driving route found");
   const geometry: [number, number][] = (r.geometry?.coordinates || []).map((c) => [c[1], c[0]]);
   let order: number[] | undefined;
   if (json.waypoints?.length) {
-    // OSRM trip API: waypoints[i].waypoint_index = position in optimised trip for input point i.
-    // We want order[optimised_position] = original_input_index.
+    // OSRM trip API: waypoints[inputIdx].trips_index = optimised position for that input stop.
+    // We want order[optimisedPos] = inputIdx so the client can reorder its stop array.
     const n = json.waypoints.length;
     const raw: (number | undefined)[] = new Array(n);
     json.waypoints.forEach((w, inputIdx) => {
-      const optimisedPos = w.waypoint_index ?? inputIdx;
+      const optimisedPos = w.trips_index ?? w.waypoint_index ?? inputIdx;
       if (optimisedPos >= 0 && optimisedPos < n) raw[optimisedPos] = inputIdx;
     });
     if (!raw.some((v) => v == null)) order = raw as number[];
