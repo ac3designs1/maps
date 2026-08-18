@@ -1132,6 +1132,80 @@ function importTripFromUrl() {
   } catch { return false; }
 }
 
+/* ─── install prompt ─── */
+(function installPrompt() {
+  const DISMISS_KEY = "install_dismissed";
+  // Already installed as PWA — hide everything
+  const isStandalone = window.matchMedia("(display-mode:standalone)").matches
+    || window.navigator.standalone === true;
+  if (isStandalone) return;
+  // Don't nag if user already dismissed in the last 30 days
+  const dismissed = Number(localStorage.getItem(DISMISS_KEY) || 0);
+  if (Date.now() - dismissed < 30 * 86400000) return;
+
+  const ua = navigator.userAgent;
+  const isIOS = /iP(hone|ad|od)/.test(ua) && !/CriOS/.test(ua);
+  const isAndroidOrChrome = /Android/.test(ua) || /Chrome/.test(ua);
+
+  function dismiss(key) {
+    localStorage.setItem(key || DISMISS_KEY, String(Date.now()));
+  }
+
+  if (isIOS) {
+    // iOS Safari: show tooltip pointing at Share button in bottom bar
+    const tip = $("iosTooltip");
+    // On iPad the Share button is top-right, so flip the arrow
+    const isIPad = /iPad/.test(ua) || (navigator.maxTouchPoints > 1 && /Macintosh/.test(ua));
+    if (isIPad) {
+      tip.style.bottom = "auto";
+      tip.style.top = "calc(60px + var(--sat,0px))";
+      tip.style.right = "16px";
+      tip.style.left = "auto";
+      tip.style.transform = "none";
+      const arrow = tip.querySelector(".ios-tooltip-arrow");
+      arrow.style.borderTop = "none";
+      arrow.style.borderBottom = "10px solid rgba(28,28,30,.94)";
+      arrow.style.order = "-1";
+    }
+    setTimeout(() => tip.classList.remove("hidden"), 1200);
+    $("iosClose").addEventListener("click", () => {
+      tip.classList.add("hidden");
+      dismiss(DISMISS_KEY);
+    });
+    // Auto-hide after 12s
+    setTimeout(() => tip.classList.add("hidden"), 13000);
+
+  } else if (isAndroidOrChrome) {
+    // Android/Chrome: listen for beforeinstallprompt
+    let deferredPrompt = null;
+    window.addEventListener("beforeinstallprompt", (e) => {
+      e.preventDefault();
+      deferredPrompt = e;
+      setTimeout(() => $("installBanner").classList.remove("hidden"), 1200);
+    });
+
+    $("installBtn").addEventListener("click", async () => {
+      $("installBanner").classList.add("hidden");
+      if (deferredPrompt) {
+        deferredPrompt.prompt();
+        const { outcome } = await deferredPrompt.userChoice;
+        if (outcome === "accepted") dismiss(DISMISS_KEY);
+        deferredPrompt = null;
+      }
+    });
+
+    $("installDismiss").addEventListener("click", () => {
+      $("installBanner").classList.add("hidden");
+      dismiss(DISMISS_KEY);
+    });
+
+    // If already installed via appinstalled event
+    window.addEventListener("appinstalled", () => {
+      $("installBanner").classList.add("hidden");
+    });
+  }
+})();
+
 /* ─── boot ─── */
 ensureMap();
 locate();

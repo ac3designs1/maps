@@ -556,6 +556,76 @@ input,textarea { outline:none; border:none; -webkit-appearance:none; background:
 .toast-undo { color:#8AB4F8; font-weight:700; font-size:14px; flex-shrink:0; }
 .toast-undo.hidden { display:none !important; }
 
+/* ── Install banner (Android / generic) ── */
+.install-banner {
+  position:fixed; bottom:calc(16px + var(--sab)); left:16px; right:16px; z-index:80;
+  background:var(--card); border-radius:18px;
+  box-shadow:var(--s3); border:.5px solid var(--border);
+  display:flex; align-items:center; gap:12px;
+  padding:14px 14px 14px 16px;
+  animation:slideUp .28s cubic-bezier(.34,1.56,.64,1) both;
+}
+.install-banner.hidden { display:none !important; }
+.install-icon {
+  width:40px; height:40px; border-radius:12px;
+  background:rgba(26,115,232,.12); display:flex; align-items:center; justify-content:center;
+  color:var(--blue); flex-shrink:0;
+}
+.install-text { flex:1; min-width:0; }
+.install-text strong { display:block; font-size:15px; font-weight:700; color:var(--t1); }
+.install-text span   { font-size:13px; color:var(--t2); }
+.install-action {
+  background:var(--blue); color:#fff;
+  border-radius:20px; padding:8px 18px;
+  font-size:14px; font-weight:700; flex-shrink:0;
+  box-shadow:0 2px 8px rgba(26,115,232,.3);
+  transition:transform .1s;
+}
+.install-action:active { transform:scale(.93); }
+.install-dismiss {
+  color:var(--t3); padding:6px; flex-shrink:0;
+  border-radius:50%; transition:background .15s;
+}
+.install-dismiss:hover { background:var(--card2); }
+
+/* ── iOS tooltip (points at Share button in Safari toolbar) ── */
+.ios-tooltip {
+  position:fixed; bottom:calc(76px + var(--sab)); left:50%; transform:translateX(-50%);
+  z-index:80; max-width:min(88vw,340px); width:max-content;
+  animation:slideUp .28s cubic-bezier(.34,1.56,.64,1) both;
+}
+.ios-tooltip.hidden { display:none !important; }
+.ios-tooltip-body {
+  background:rgba(28,28,30,.94); color:#fff;
+  border-radius:16px; padding:14px 16px;
+  display:flex; align-items:center; gap:10px;
+  font-size:14px; line-height:1.45;
+  box-shadow:0 8px 32px rgba(0,0,0,.4);
+  backdrop-filter:blur(20px); -webkit-backdrop-filter:blur(20px);
+}
+.ios-tooltip-arrow {
+  width:0; height:0;
+  border-left:10px solid transparent; border-right:10px solid transparent;
+  border-top:10px solid rgba(28,28,30,.94);
+  margin:0 auto;
+}
+.ios-close {
+  color:rgba(255,255,255,.6); padding:4px; flex-shrink:0;
+  border-radius:50%; transition:background .15s; margin-left:4px;
+}
+.ios-close:hover { background:rgba(255,255,255,.1); }
+
+@keyframes slideUp {
+  from { opacity:0; transform:translateX(-50%) translateY(14px); }
+  to   { opacity:1; transform:translateX(-50%) translateY(0); }
+}
+.install-banner { transform:none; }
+@keyframes slideUpBanner {
+  from { opacity:0; transform:translateY(14px); }
+  to   { opacity:1; transform:translateY(0); }
+}
+.install-banner { animation:slideUpBanner .28s cubic-bezier(.34,1.56,.64,1) both; }
+
 /* Reduced motion */
 @media (prefers-reduced-motion:reduce) {
   *,*::before,*::after { transition:none !important; animation:none !important; }
