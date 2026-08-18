@@ -5,17 +5,18 @@
   <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,maximum-scale=1,user-scalable=no"/>
   <meta name="apple-mobile-web-app-capable" content="yes"/>
   <meta name="mobile-web-app-capable" content="yes"/>
-  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent"/>
+  <meta name="apple-mobile-web-app-status-bar-style" content="default"/>
   <meta name="apple-mobile-web-app-title" content="Trips"/>
-  <meta name="theme-color" content="#ffffff" media="(prefers-color-scheme:light)"/>
-  <meta name="theme-color" content="#111113" media="(prefers-color-scheme:dark)"/>
+  <meta name="theme-color" content="#F2F2F7" media="(prefers-color-scheme:light)"/>
+  <meta name="theme-color" content="#000000" media="(prefers-color-scheme:dark)"/>
   <meta name="color-scheme" content="light dark"/>
   <link rel="manifest" href="manifest.webmanifest"/>
-  <link rel="apple-touch-icon" href="icon.svg"/>
+  <link rel="apple-touch-icon" sizes="180x180" href="icon-180.png"/>
+  <link rel="apple-touch-icon" href="icon-180.png"/>
   <link rel="icon" href="icon.svg"/>
   <title>Trips</title>
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
-  <link rel="stylesheet" href="styles.css?v=34"/>
+  <link rel="stylesheet" href="styles.css?v=35"/>
 </head>
 <body>
 
@@ -37,7 +38,7 @@
 
   <div class="search-wrap">
     <svg class="search-icon" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3-3"/></svg>
-    <input id="tripSearch" type="search" placeholder="Search trips" enterkeyhint="search"/>
+    <input id="tripSearch" type="text" placeholder="Search trips" enterkeyhint="search" inputmode="search" autocomplete="off" autocorrect="off" spellcheck="false"/>
   </div>
 
   <div id="offlineBanner" class="offline-banner hidden">
@@ -182,6 +183,6 @@
 </div>
 
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-<script src="app.js?v=34"></script>
+<script src="app.js?v=35"></script>
 </body>
 </html>

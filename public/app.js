@@ -394,7 +394,7 @@ function positionSuggest() {
   const input = activeStopInput();
   if (!input||box.classList.contains("hidden")) return;
 
-  input.closest(".stop-row")?.scrollIntoView({block:"nearest",behavior:"smooth"});
+  input.closest(".stop-row")?.scrollIntoView({block:"nearest"});
 
   requestAnimationFrame(() => {
     const r = input.getBoundingClientRect();
@@ -883,7 +883,7 @@ $("btnAddStop").onclick = () => {
     const target = destLike ? inputs[inputs.length-2] : inputs[inputs.length-1];
     if (target) {
       target.focus();
-      target.closest(".stop-row")?.scrollIntoView({ block:"center", behavior:"smooth" });
+      target.closest(".stop-row")?.scrollIntoView({ block:"nearest" });
     }
   }, 60);
 };
@@ -1254,12 +1254,25 @@ async function routeNow(optimize) {
 /* ─── map ─── */
 function ensureMap() {
   if (S.map) return;
-  S.map=L.map("map",{zoomControl:false,attributionControl:false,tap:false}).setView([S.bias.lat,S.bias.lng],11);
+  S.map=L.map("map",{
+    zoomControl:false,
+    attributionControl:false,
+    tap:false,
+    bounceAtZoomLimits:false,
+    inertia:true,
+    zoomSnap:0,
+  }).setView([S.bias.lat,S.bias.lng],11);
   const dark = window.matchMedia?.("(prefers-color-scheme: dark)")?.matches;
   L.tileLayer(dark
     ? "https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png"
     : "https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png",
     { maxZoom: 20 }).addTo(S.map);
+  S.map.on("click", () => {
+    if (document.activeElement && document.activeElement !== document.body) {
+      document.activeElement.blur();
+      hideSuggest();
+    }
+  });
 }
 function mapPad() {
   const h = $("tripScreen").classList.contains("is-open") ? ($("sheet").offsetHeight || 200) : 24;
@@ -1390,6 +1403,7 @@ if (window.visualViewport) {
     const kb=Math.max(0,window.innerHeight-v.height-v.offsetTop);
     document.documentElement.style.setProperty("--kb",`${kb>48?kb:0}px`);
     if (!$("suggestBox").classList.contains("hidden")) positionSuggest();
+    S.map?.invalidateSize({ animate: false });
   };
   window.visualViewport.addEventListener("resize",pinKb);
   window.visualViewport.addEventListener("scroll",pinKb);
@@ -1633,13 +1647,14 @@ const _analytics = (function() {
   return { ping };
 })();
 
-/* ─── tap map to dismiss keyboard ─── */
-document.getElementById("map").addEventListener("click", () => {
-  if (document.activeElement && document.activeElement !== document.body) {
-    document.activeElement.blur();
-    hideSuggest();
-  }
-});
+/* ─── iOS: don't rubber-band the whole page off the map ─── */
+document.addEventListener("touchmove", (e) => {
+  if (e.touches.length > 1) return;
+  const t = e.target;
+  if (!(t instanceof Element)) return;
+  if (t.closest(".screen-list, .stop-list, .modal-sheet, .action-row, .suggest-box, .leaflet-container, .feed, .users, .errs")) return;
+  e.preventDefault();
+}, { passive: false });
 
 /* ─── boot ─── */
 ensureMap();

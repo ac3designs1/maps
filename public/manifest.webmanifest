@@ -4,9 +4,15 @@
   "display": "standalone",
   "start_url": "/",
   "scope": "/",
-  "background_color": "#f2f2f7",
-  "theme_color": "#f2f2f7",
+  "orientation": "portrait",
+  "background_color": "#F2F2F7",
+  "theme_color": "#F2F2F7",
   "icons": [
+    {
+      "src": "icon-180.png",
+      "sizes": "180x180",
+      "type": "image/png"
+    },
     {
       "src": "icon.svg",
       "sizes": "any",
