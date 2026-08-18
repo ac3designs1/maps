@@ -1,5 +1,5 @@
 /* ═══════════════════════════════════════════════════
-   TRIPS  —  v36
+   TRIPS  —  v37
 ═══════════════════════════════════════════════════ */
 
 /* ── Tokens ──────────────────────────────────────── */
@@ -62,7 +62,6 @@ html,body {
   overflow:hidden; overscroll-behavior:none;
   -webkit-font-smoothing:antialiased;
   -webkit-text-size-adjust:100%;
-  touch-action:manipulation;
 }
 button, a, [role="button"] { touch-action:manipulation; }
 button,input,textarea { font:inherit; color:inherit; margin:0; }
@@ -77,6 +76,7 @@ body, .screen-list, .screen-planner, .sheet, .modal {
 
 /* ── Map ─────────────────────────────────────────── */
 #map { position:fixed; inset:0; z-index:0; background:#E5E9EF; }
+#map, .leaflet-container { touch-action:pan-x pan-y pinch-zoom; }
 .leaflet-control-attribution,.leaflet-control-zoom { display:none !important; }
 
 .map-pin {
@@ -337,7 +337,7 @@ body, .screen-list, .screen-planner, .sheet, .modal {
 }
 .sheet.snap-collapsed { height:78px; }
 .sheet.snap-mid       { height:52%; }
-.sheet.snap-full      { height:calc(100svh - 58px - var(--sat)); }
+.sheet.snap-full      { height:calc(100% - 58px - var(--sat)); }
 .sheet.no-transition  { transition:none; }
 
 /* Handle */

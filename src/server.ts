@@ -47,11 +47,22 @@ async function readBody(req: http.IncomingMessage) {
   let n = 0;
   for await (const c of req) {
     n += c.length;
-    if (n > 2_000_000) throw new Error("Body too large");
+    if (n > 2_000_000) {
+      const err = new Error("Body too large") as Error & { status?: number };
+      err.status = 413;
+      throw err;
+    }
     chunks.push(c as Buffer);
   }
   const raw = Buffer.concat(chunks).toString("utf8");
-  return raw ? JSON.parse(raw) : {};
+  if (!raw) return {};
+  try {
+    return JSON.parse(raw);
+  } catch {
+    const err = new Error("Invalid JSON") as Error & { status?: number };
+    err.status = 400;
+    throw err;
+  }
 }
 
 const MIME: Record<string, string> = {
@@ -262,8 +273,10 @@ const server = http.createServer(async (req, res) => {
     if (req.method === "GET") return staticFile(u.pathname, res);
     send(res, 404, { error: "Not found" });
   } catch (err) {
-    recordError("server", err instanceof Error ? err.message : String(err));
-    send(res, 500, { error: err instanceof Error ? err.message : String(err) });
+    const status = Number((err as { status?: number }).status) || 500;
+    const message = err instanceof Error ? err.message : String(err);
+    recordError("server", message);
+    send(res, status >= 400 && status < 600 ? status : 500, { error: status >= 500 ? "Server error" : message });
   }
 });
 

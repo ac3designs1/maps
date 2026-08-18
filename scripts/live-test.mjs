@@ -39,22 +39,24 @@ try {
   // Static
   {
     const { status, text } = await req("/");
-    if (status === 200 && text.includes("app.js?v=36") && text.includes("styles.css?v=36")) ok("GET /", "cache v=36");
+    if (status === 200 && text.includes("app.js?v=37") && text.includes("styles.css?v=37")) ok("GET /", "cache v=37");
     else fail("GET /", "status " + status);
   }
   {
-    const { status, text } = await req("/styles.css?v=36");
-    if (status === 200 && text.includes(".screen-planner") && text.includes("pointer-events:none") && text.includes(".action-chip.is-hot") && text.includes(".mrow.checked")) ok("GET styles.css");
+    const { status, text } = await req("/styles.css?v=37");
+    if (status === 200 && text.includes(".screen-planner") && text.includes("pointer-events:none") && text.includes(".action-chip.is-hot") && text.includes(".mrow.checked") && text.includes("pinch-zoom") && text.includes("calc(100% - 58px")) ok("GET styles.css");
     else fail("GET styles.css", "status " + status);
   }
   {
-    const { status, text } = await req("/app.js?v=36");
+    const { status, text } = await req("/app.js?v=37");
     if (status === 200 && text.includes("function pinHereFirst") && text.includes("hereDisplay")) ok("GET app.js");
     else fail("GET app.js", "status " + status);
-    const guards = ["function backToList", "lockStart:isHereStop", "Where to?", "readOnly", "is-hot"];
+    const guards = ["function backToList", "lockStart:isHereStop", "Where to?", "readOnly", "is-hot", "function updateHereDot", "You're offline."];
     const missing = guards.filter(s => !text.includes(s));
     if (!missing.length) ok("planner flow guards in JS");
     else fail("planner flow guards in JS", missing.join(", "));
+    if (text.includes("voyager") && !text.includes("dark_all")) ok("voyager map tiles");
+    else fail("voyager map tiles", "missing voyager or dark_all sneaked in");
   }
   {
     const { status, text } = await req("/admin.html");
@@ -124,6 +126,15 @@ try {
     const { status } = await req("/api/reverse?lat=abc&lon=1");
     if (status === 400) ok("reverse bad coords");
     else fail("reverse bad coords", "status " + status);
+  }
+  {
+    const { status, json } = await req("/api/route", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: "{not-json",
+    });
+    if (status === 400 && json?.error === "Invalid JSON") ok("route rejects invalid JSON");
+    else fail("route rejects invalid JSON", "status " + status + " " + JSON.stringify(json));
   }
 
   // Geocode
@@ -318,7 +329,7 @@ try {
   // IDs in HTML exist in JS
   {
     const html = (await req("/")).text;
-    const js = (await req("/app.js?v=36")).text;
+    const js = (await req("/app.js?v=37")).text;
     const ids = [...html.matchAll(/id="([^"]+)"/g)].map(m => m[1]);
     const missing = ids.filter(id => !js.includes('"' + id + '"') && !js.includes("'" + id + "'") && !["mapToggleIcon","mapToggleLabel","navTitle","navSub","continueTitle","continueSub","installTitle","installSub","iosShareWord"].includes(id));
     // map/list structural ids that JS must touch

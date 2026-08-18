@@ -110,7 +110,12 @@ async function api(path, opts = {}) {
       if (timedOut) throw new Error("That took too long. Try again.");
       throw Object.assign(new Error("cancelled"),{cancelled:true});
     }
-    throw err;
+    if (!navigator.onLine) throw new Error("You're offline.");
+    const msg = String(err?.message || "");
+    if (err?.name === "TypeError" || /Failed to fetch|Load failed|NetworkError|network/i.test(msg)) {
+      throw new Error("Couldn't reach the server. Try again.");
+    }
+    throw new Error(msg || "Something went wrong");
   } finally { clearTimeout(timer); }
 }
 
@@ -153,7 +158,15 @@ function readLocal() {
   try { const p = JSON.parse(localStorage.getItem(STORE_KEY)||'{"trips":[]}'); return Array.isArray(p.trips)?p.trips:[]; }
   catch { return []; }
 }
-function writeLocal(trips) { try { localStorage.setItem(STORE_KEY,JSON.stringify({trips})); } catch {} }
+function writeLocal(trips) {
+  try { localStorage.setItem(STORE_KEY,JSON.stringify({trips})); }
+  catch {
+    if (!writeLocal._warned) {
+      writeLocal._warned = true;
+      toast("Couldn't save — this iPhone may be out of storage");
+    }
+  }
+}
 function readPins() { try { return JSON.parse(localStorage.getItem(PINS_KEY)||"{}"); } catch { return {}; } }
 function writePins(p) { try { localStorage.setItem(PINS_KEY,JSON.stringify(p)); } catch {} }
 function pinHit(key) {
@@ -1028,6 +1041,7 @@ function chk(on) {
 function ico(svg) { return `<span class="mrow-ico">${svg}</span>`; }
 function moreBody() {
   const t    = S.trip;
+  if (!t) return "";
   const pins = readPins();
   const homeLabel = (pins.home?.label||"Not set").split(",")[0];
   const workLabel = (pins.work?.label||"Not set").split(",")[0];
@@ -1085,7 +1099,7 @@ $("modalBody").addEventListener("click", e => {
   }
 
   const more = e.target.closest("[data-more]");
-  if (!more) return;
+  if (!more || !S.trip) return;
   const act = more.dataset.more;
   const handlers = {
     star()    { S.trip.starred=!S.trip.starred; closeModal(); scheduleSave(); renderList(); toast(S.trip.starred?"Starred":"Unstarred"); },
@@ -1147,6 +1161,7 @@ async function pasteAddresses() {
     else if (S.trip.roundtrip) S.trip.stops.push(...built);
     else S.trip.stops.splice(Math.max(1,S.trip.stops.length-1),0,...built);
     const missed=built.filter(s=>!s.lat).length;
+    pinHereFirst();
     syncStops(true); setSnap("mid"); scheduleSave(); scheduleRoute(false);
     toast(missed?`Added ${built.length}. ${missed} need a tap to fix.`:`Added ${built.length} stop${built.length===1?"":"s"}`);
   } catch(err) { if(!err.cancelled) toast(err.message); }
@@ -1163,7 +1178,14 @@ function shareTrip() {
   const baseUrl=`${location.origin}${location.pathname.replace(/\/$/, "")}`;
   const link=payload.length<1800?`${baseUrl}?import=${payload}`:"";
   const text=`${head}${stats?`\n${stats}`:""}\n\n${lines.join("\n")}${link?`\n\n${link}`:""}`;
-  if (navigator.share) { navigator.share({title:head,text,url:link||undefined}).catch(()=>{}); return; }
+  if (navigator.share) {
+    navigator.share({title:head,text,url:link||undefined}).catch(err => {
+      if (err && err.name === "AbortError") return;
+      if (navigator.clipboard) navigator.clipboard.writeText(text).then(()=>toast("Copied to clipboard")).catch(()=>toast("Couldn't share"));
+      else toast("Couldn't share");
+    });
+    return;
+  }
   if (navigator.clipboard) { navigator.clipboard.writeText(text).then(()=>toast(link?"Copied trip + link":"Copied to clipboard")).catch(()=>toast("Couldn't copy")); }
   else toast("Share not supported on this browser");
 }
@@ -1270,6 +1292,13 @@ function ensureMap() {
     }
   });
 }
+function updateHereDot() {
+  if (!S.map || !S.here) return;
+  const ll = [S.here.lat, S.here.lng];
+  if (S.hereDot) S.hereDot.setLatLng(ll);
+  else S.hereDot = L.circleMarker(ll,{radius:7,color:"#fff",weight:2.5,fillColor:"#1A73E8",fillOpacity:1}).addTo(S.map);
+  if (isHereStop(S.trip?.stops[0]) && S.markers[0]) S.markers[0].setLatLng(ll);
+}
 function mapPad() {
   const h = $("tripScreen").classList.contains("is-open") ? ($("sheet").offsetHeight || 200) : 24;
   return {paddingTopLeft:[16,64],paddingBottomRight:[16,h+10]};
@@ -1279,7 +1308,6 @@ function drawMap(fit) {
   S.markers.forEach(m=>m.remove()); S.markers=[];
   if (S.lineOutline) { S.lineOutline.remove(); S.lineOutline=null; }
   if (S.line) { S.line.remove(); S.line=null; }
-  if (S.hereDot) { S.hereDot.remove(); S.hereDot=null; }
   const pts=geocodedStops();
   pts.forEach((s,i) => {
     const last=i===pts.length-1&&!S.trip?.roundtrip;
@@ -1290,9 +1318,7 @@ function drawMap(fit) {
     mk.on("click",()=>{ S.focusId=s.id; setSnap("full"); const inp=$("stopList").querySelector(`.stop-input[data-id="${s.id}"]`); inp?.scrollIntoView({block:"center"}); inp?.focus(); });
     S.markers.push(mk);
   });
-  if (S.here) {
-    S.hereDot=L.circleMarker([S.here.lat,S.here.lng],{radius:7,color:"#fff",weight:2.5,fillColor:"#1A73E8",fillOpacity:1}).addTo(S.map);
-  }
+  updateHereDot();
   if (!fit) return;
   const pad=mapPad();
   try {
@@ -1394,12 +1420,14 @@ function openExternal(kind) {
 
 /* ─── keyboard / viewport ─── */
 if (window.visualViewport) {
+  let vvTimer = 0;
   const pinKb=()=>{
     const v=window.visualViewport;
     const kb=Math.max(0,window.innerHeight-v.height-v.offsetTop);
     document.documentElement.style.setProperty("--kb",`${kb>48?kb:0}px`);
     if (!$("suggestBox").classList.contains("hidden")) positionSuggest();
-    S.map?.invalidateSize({ animate: false });
+    clearTimeout(vvTimer);
+    vvTimer = setTimeout(() => S.map?.invalidateSize({ animate: false }), 80);
   };
   window.visualViewport.addEventListener("resize",pinKb);
   window.visualViewport.addEventListener("scroll",pinKb);
@@ -1459,13 +1487,7 @@ function locate() {
     const firstFix = !S.here;
     S.here={lat:pos.coords.latitude,lng:pos.coords.longitude};
     S.bias={...S.here};
-    if (!S.hereLabel||S.hereLabel==="Your location") {
-      try {
-        const d=await api(`/api/reverse?lat=${S.here.lat}&lon=${S.here.lng}`,{timeout:8000});
-        if(d.hit?.label) S.hereLabel=d.hit.label;
-      } catch {}
-    }
-    // Keep GPS coords fresh if stop 1 is Your location
+    // Keep GPS coords fresh if stop 1 is Your location — do not re-route every tick
     const hereStop = S.trip?.stops.find(isHereStop);
     if (hereStop) {
       hereStop.lat = S.here.lat;
@@ -1474,7 +1496,14 @@ function locate() {
       hereStop.label = hereDisplay();
       hereStop.here = true;
     }
+    updateHereDot();
     if (firstFix) applyLocationToFirstStop();
+    if (firstFix && (!S.hereLabel||S.hereLabel==="Your location")) {
+      try {
+        const d=await api(`/api/reverse?lat=${S.here.lat}&lon=${S.here.lng}`,{timeout:8000});
+        if(d.hit?.label) S.hereLabel=d.hit.label;
+      } catch {}
+    }
   },(err)=>{
     if (locDenied) return;
     locDenied = true;
@@ -1483,7 +1512,10 @@ function locate() {
 }
 
 /* ─── online/offline ─── */
-window.addEventListener("online",  ()=>$("offlineBanner").classList.add("hidden"));
+window.addEventListener("online",  ()=>{
+  $("offlineBanner").classList.add("hidden");
+  if (S.trip && geocodedStops().length>=2 && !S.routing) scheduleRoute(false);
+});
 window.addEventListener("offline", ()=>$("offlineBanner").classList.remove("hidden"));
 if (!navigator.onLine) $("offlineBanner").classList.remove("hidden");
 
