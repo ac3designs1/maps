@@ -180,8 +180,25 @@ export function isSamePlace(a: SuggestHit, b: SuggestHit) {
 export function dedupeSuggestHits(hits: SuggestHit[]) {
   const out: SuggestHit[] = [];
   for (const h of hits) {
-    if (out.some((prev) => isSamePlace(prev, h))) continue;
-    out.push(h);
+    const i = out.findIndex((prev) => isSamePlace(prev, h));
+    if (i < 0) {
+      out.push(h);
+      continue;
+    }
+    const prev = out[i];
+    if (!Number.isFinite(prev.lat) && Number.isFinite(h.lat)) {
+      out[i] = {
+        ...prev,
+        lat: h.lat,
+        lng: h.lng,
+        label: prev.label || h.label,
+        name: prev.name || h.name,
+        sub: prev.sub || h.sub,
+        kind: prev.kind || h.kind,
+        placeId: prev.placeId || h.placeId,
+        distanceM: prev.distanceM ?? h.distanceM,
+      };
+    }
   }
   return out;
 }

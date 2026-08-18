@@ -19,6 +19,7 @@ const S = {
   focusId: null,
   suggestTimer: 0,
   suggestAc: null,
+  suggestSeq: 0,
   sugI: 0,
   picking: false,
   saveTimer: 0,
@@ -258,19 +259,13 @@ function pushRecentPlace(hit) {
   });
   try { localStorage.setItem(RECENT_KEY, JSON.stringify([row, ...rest].slice(0, 8))); } catch {}
 }
-function matchRecents(q) {
-  const n = String(q||"").trim().toLowerCase();
-  if (n.length < 2) return [];
-  return readRecentPlaces().filter(p =>
-    String(p.name||"").toLowerCase().includes(n) || String(p.label||"").toLowerCase().includes(n)
-  );
-}
 
 /* ─── screens ─── */
 function showList() {
   $("listScreen").classList.remove("is-away");
   $("tripScreen").classList.remove("is-open");
   document.activeElement?.blur();
+  S.focusId = null;
   hideSuggest();
   stopTrafficWatch();
   renderContinue();
@@ -392,6 +387,8 @@ function openTrip(id) {
       hereStop.here = true;
       hereStop.query = hereDisplay();
       hereStop.label = hereDisplay();
+    } else {
+      applyLocationToFirstStop();
     }
   }
   rememberLast(id);
@@ -443,7 +440,16 @@ document.addEventListener("visibilitychange", () => {
 });
 
 /* ─── autocomplete ─── */
+function cancelSuggest() {
+  clearTimeout(S.suggestTimer);
+  S.suggestTimer = 0;
+  S.suggestAc?.abort();
+  S.suggestAc = null;
+  S.suggestSeq++;
+}
+
 function hideSuggest() {
+  cancelSuggest();
   const box = $("suggestBox");
   box.classList.add("hidden");
   box.classList.remove("is-loading");
@@ -461,8 +467,6 @@ function positionSuggest() {
   const box   = $("suggestBox");
   const input = activeStopInput();
   if (!input||box.classList.contains("hidden")) return;
-
-  input.closest(".stop-row")?.scrollIntoView({block:"nearest"});
 
   requestAnimationFrame(() => {
     const r = input.getBoundingClientRect();
@@ -516,41 +520,58 @@ function fmtSugDist(m) {
   return km < 9.5 ? `${km.toFixed(1)} km` : `${Math.round(km)} km`;
 }
 
-function renderSuggestRows(hits) {
-  const iconFor = kind => {
-    if (kind==="business") return {
-      cls:"sug-ico-blue",
-      svg:`<svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor"><path d="M3 9l1-6h16l1 6v1a2 2 0 0 1-4 0 2 2 0 0 1-4 0 2 2 0 0 1-4 0 2 2 0 0 1-4 0V9zm0 5h18v7H3z"/></svg>`
-    };
-    if (kind==="recent") return {
-      cls:"sug-ico-amber",
-      svg:`<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>`
-    };
-    return {
-      cls:"sug-ico-green",
-      svg:`<svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor"><path d="M12 2a7 7 0 0 0-7 7c0 5 7 13 7 13s7-8 7-13a7 7 0 0 0-7-7zm0 9.5A2.5 2.5 0 1 1 12 6a2.5 2.5 0 0 1 0 5.5z"/></svg>`
-    };
+function sugIcon(h) {
+  if (h?.here || h?.kind === "gps") return {
+    cls:"sug-ico-blue",
+    svg:`<svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor"><circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3"/></svg>`
   };
-  if (!hits.length) return `<div class="sug-empty">No results found</div>`;
-  return hits.map((h,i) => {
-    const {cls,svg} = iconFor(h.kind);
-    const name = esc(hitName(h));
-    const addr = esc(hitAddr(h));
-    const dist = esc(fmtSugDist(h.distanceM));
-    return `<button type="button" class="sug-row${i===S.sugI?" is-on":""}" data-i="${i}">
-      <span class="sug-ico ${cls}">${svg}</span>
-      <span class="sug-text">
-        <span class="sug-top"><span class="sug-name">${name}</span>${dist?`<span class="sug-dist">${dist}</span>`:""}</span>
-        ${addr?`<span class="sug-addr">${addr}</span>`:""}
-      </span>
-    </button>`;
-  }).join("");
+  if (h?.pin === "home") return {
+    cls:"sug-ico-green",
+    svg:`<svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor"><path d="M10 20v-6h4v6h5v-8h3L12 3 2 12h3v8z"/></svg>`
+  };
+  if (h?.pin === "work") return {
+    cls:"sug-ico-amber",
+    svg:`<svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor"><path d="M20 6h-2.18A3 3 0 0 0 15 4H9a3 3 0 0 0-2.82 2H4a2 2 0 0 0-2 2v11a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2zm-5 0H9a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1z"/></svg>`
+  };
+  if (h?.kind === "recent") return {
+    cls:"sug-ico-amber",
+    svg:`<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>`
+  };
+  if (h?.kind === "business") return {
+    cls:"sug-ico-blue",
+    svg:`<svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor"><path d="M3 9l1-6h16l1 6v1a2 2 0 0 1-4 0 2 2 0 0 1-4 0 2 2 0 0 1-4 0 2 2 0 0 1-4 0V9zm0 5h18v7H3z"/></svg>`
+  };
+  return {
+    cls:"sug-ico-green",
+    svg:`<svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor"><path d="M12 2a7 7 0 0 0-7 7c0 5 7 13 7 13s7-8 7-13a7 7 0 0 0-7-7zm0 9.5A2.5 2.5 0 1 1 12 6a2.5 2.5 0 0 1 0 5.5z"/></svg>`
+  };
 }
 
-function paintHits(hits, { loading } = {}) {
+function renderSugRow(h, i) {
+  const {cls,svg} = sugIcon(h);
+  const name = esc(hitName(h));
+  const addr = esc(hitAddr(h));
+  const dist = esc(fmtSugDist(h.distanceM));
+  const me = h.here ? ` data-me="1"` : "";
+  const pin = h.pin ? ` data-pin="${esc(h.pin)}"` : "";
+  return `<button type="button" class="sug-row${i===S.sugI?" is-on":""}" data-i="${i}"${me}${pin}>
+    <span class="sug-ico ${cls}">${svg}</span>
+    <span class="sug-text">
+      <span class="sug-top"><span class="sug-name">${name}</span>${dist?`<span class="sug-dist">${dist}</span>`:""}</span>
+      ${addr?`<span class="sug-addr">${addr}</span>`:""}
+    </span>
+  </button>`;
+}
+
+function renderSuggestRows(hits) {
+  if (!hits.length) return `<div class="sug-empty">No results found</div>`;
+  return hits.map((h,i) => renderSugRow(h, i)).join("");
+}
+
+function paintHits(hits) {
   const box = $("suggestBox");
   S.sugI = 0;
-  box.classList.toggle("is-loading", !!loading);
+  box.classList.remove("is-loading");
   box.innerHTML = renderSuggestRows(hits);
   box._hits = hits;
   box.classList.remove("hidden");
@@ -558,35 +579,49 @@ function paintHits(hits, { loading } = {}) {
 }
 
 function showEmptySuggest() {
-  const pins = readPins();
+  cancelSuggest();
   const recents = readRecentPlaces();
-  const rows = [];
-  if (S.here) rows.push(`<button type="button" class="sug-row" data-me="1">
-    <span class="sug-ico sug-ico-blue"><svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor"><circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3"/></svg></span>
-    <span class="sug-text"><span class="sug-top"><span class="sug-name">Your location</span></span><span class="sug-addr">${esc(S.hereLabel)}</span></span>
-  </button>`);
-  if (pins.home) rows.push(`<button type="button" class="sug-row" data-pin="home">
-    <span class="sug-ico sug-ico-green"><svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor"><path d="M10 20v-6h4v6h5v-8h3L12 3 2 12h3v8z"/></svg></span>
-    <span class="sug-text"><span class="sug-top"><span class="sug-name">Home</span></span><span class="sug-addr">${esc(pins.home.label)}</span></span>
-  </button>`);
-  if (pins.work) rows.push(`<button type="button" class="sug-row" data-pin="work">
-    <span class="sug-ico sug-ico-amber"><svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor"><path d="M20 6h-2.18A3 3 0 0 0 15 4H9a3 3 0 0 0-2.82 2H4a2 2 0 0 0-2 2v11a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2zm-5 0H9a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1z"/></svg></span>
-    <span class="sug-text"><span class="sug-top"><span class="sug-name">Work</span></span><span class="sug-addr">${esc(pins.work.label)}</span></span>
-  </button>`);
-  if (recents.length) {
-    rows.push(`<div class="sug-head">Recent</div>`);
-    S.sugI = 0;
-    rows.push(renderSuggestRows(recents.map(r => ({ ...r, kind: r.kind || "recent" }))));
-  }
-  if (!rows.length) return hideSuggest();
+  const hits = [];
+  if (S.here) hits.push({
+    here: true, kind: "gps", name: "Your location",
+    sub: S.hereLabel && S.hereLabel !== "Your location" ? S.hereLabel : "",
+    label: hereDisplay(), lat: S.here.lat, lng: S.here.lng,
+  });
+  const home = pinHit("home");
+  if (home) hits.push({ ...home, pin: "home", kind: "pin", name: "Home", sub: home.label });
+  const work = pinHit("work");
+  if (work) hits.push({ ...work, pin: "work", kind: "pin", name: "Work", sub: work.label });
+  const recentHits = recents.map(r => ({ ...r, kind: "recent" }));
+  const all = [...hits, ...recentHits];
+  if (!all.length) { hideSuggest(); return; }
+
+  S.sugI = 0;
   const box = $("suggestBox");
   box.classList.remove("is-loading");
-  box.innerHTML = rows.join("");
-  box._hits = recents.length ? recents : null;
+  const parts = hits.map((h,i) => renderSugRow(h, i));
+  if (recentHits.length) {
+    parts.push(`<div class="sug-head">Recent</div>`);
+    recentHits.forEach((h, i) => parts.push(renderSugRow(h, hits.length + i)));
+  }
+  box.innerHTML = parts.join("");
+  box._hits = all;
   box.classList.remove("hidden");
   positionSuggest();
 }
-function showHereSuggest() { showEmptySuggest(); }
+
+function refreshHereSuggest() {
+  const box = $("suggestBox");
+  if (box.classList.contains("hidden")) return;
+  const hits = box._hits || [];
+  const h = hits.find(x => x.here);
+  if (h && S.here) {
+    h.lat = S.here.lat;
+    h.lng = S.here.lng;
+    h.sub = S.hereLabel && S.hereLabel !== "Your location" ? S.hereLabel : "";
+  }
+  const addr = box.querySelector("[data-me] .sug-addr");
+  if (addr) addr.textContent = h?.sub || "";
+}
 
 async function applyHit(hit) {
   if (!hit || S.picking) return;
@@ -656,15 +691,6 @@ async function applyHit(hit) {
 
 async function pickSugRow(btn) {
   if (!btn || S.picking) return;
-  if (btn.dataset.me) {
-    if (!S.here) return toast("Location unavailable");
-    return applyHit({label:hereDisplay(),lat:S.here.lat,lng:S.here.lng,here:true,name:hereDisplay()});
-  }
-  if (btn.dataset.pin) {
-    const h=pinHit(btn.dataset.pin);
-    if (!h) return toast("Set this in More first");
-    return applyHit(h);
-  }
   const idx = Number(btn.dataset.i);
   const h = ($("suggestBox")._hits||[])[idx];
   if (h) return applyHit(h);
@@ -833,6 +859,9 @@ $("nudgeOptimise")?.addEventListener("click", () => {
   if (S.routing) return;
   nudgeDismissed = true;
   $("optimiseNudge").classList.add("hidden");
+  compactEmptyStops();
+  pinHereFirst();
+  syncStops(true);
   if (geocodedStops().length < 3) return toast("Add at least 3 places first");
   $("btnOptimise").classList.add("loading");
   scheduleRoute(true);
@@ -872,7 +901,8 @@ function moveSug(delta) {
 }
 
 function runSuggest(id, q) {
-  clearTimeout(S.suggestTimer);
+  cancelSuggest();
+  const seq = S.suggestSeq;
   const box = $("suggestBox");
   const hasSearchHits = Array.isArray(box._hits) && box._hits.length && !box.querySelector("[data-me],[data-pin],.sug-head");
   box.classList.add("is-loading");
@@ -883,18 +913,17 @@ function runSuggest(id, q) {
   }
   positionSuggest();
   S.suggestTimer = setTimeout(async () => {
+    if (seq !== S.suggestSeq) return;
     try {
-      const recents = matchRecents(q);
-      const hits = dedupeHits([...recents, ...await lookup(q)]).slice(0, 8);
-      if (S.focusId !== id) return;
+      const hits = dedupeHits(await lookup(q)).slice(0, 8);
+      if (seq !== S.suggestSeq || S.focusId !== id) return;
       const live = activeStopInput();
       if (live && live.value.trim() !== q) return;
       paintHits(hits);
     } catch (err) {
-      if (!err.cancelled && S.focusId === id) {
-        const box = $("suggestBox");
-        box.classList.remove("is-loading");
-        if (!box._hits?.length) paintHits([]);
+      if (!err.cancelled && seq === S.suggestSeq && S.focusId === id) {
+        $("suggestBox").classList.remove("is-loading");
+        if (!$("suggestBox")._hits?.length) paintHits([]);
       }
     }
   }, 140);
@@ -910,6 +939,7 @@ function bindStopInput(input) {
     setSnap("full");
     const stop = S.trip?.stops.find(s=>s.id===id);
     const q = input.value.trim();
+    input.closest(".stop-row")?.scrollIntoView({block:"nearest"});
     if (isHereStop(stop) || input.readOnly) showEmptySuggest();
     else if (!q) showEmptySuggest();
     else if (q.length >= 2) runSuggest(id, q);
@@ -970,12 +1000,12 @@ function bindStopInput(input) {
     if (e.key==="ArrowUp") { e.preventDefault(); moveSug(-1); return; }
     if (e.key!=="Enter") return;
     e.preventDefault();
-    const q = input.value.trim();
-    if (!q) return;
     const hits = $("suggestBox")._hits || [];
     const pick = hits[Math.max(0, Math.min(S.sugI, hits.length-1))] || hits[0];
     if (pick) { applyHit(pick); return; }
-    clearTimeout(S.suggestTimer);
+    const q = input.value.trim();
+    if (!q) return;
+    cancelSuggest();
     try { const next=await lookup(q); if(next[0]) applyHit(next[0]); }
     catch(err) { if(!err.cancelled) toast(err.message); }
   });
@@ -1429,21 +1459,26 @@ async function routeNow(optimize, silent) {
   try {
     const data=await api("/api/route",{method:"POST",timeout:35000,body:JSON.stringify({
       points:pts.map(p=>({lat:p.lat,lng:p.lng})),
-      optimize, roundtrip:!!S.trip.roundtrip, lockStart:isHereStop(pts[0]),
+      optimize, roundtrip:!!S.trip.roundtrip, lockStart:isHereStop(S.trip.stops[0]),
       avoidTolls:!!S.trip.avoidTolls, avoidFerries:!!S.trip.avoidFerries,
     })});
     if (seq!==S.routeSeq || !S.trip) return;
     if (optimize&&Array.isArray(data.order)&&data.order.length===pts.length) {
       const geocodedIds = new Set(pts.map(p=>p.id));
-      const reordered   = data.order.map(i=>pts[i]).filter(Boolean);
-      const same = data.order.every((v,i)=>v===i);
-      let ri = 0;
-      S.trip.stops = S.trip.stops.map(s => geocodedIds.has(s.id) ? reordered[ri++] : s).filter(Boolean);
-      pinHereFirst();
-      nudgeDismissed = true;
-      $("optimiseNudge")?.classList.add("hidden");
-      syncStops(true);
-      if (!silent) toast(same ? "Already the shortest drive" : "Reordered for a shorter drive");
+      const reordered   = data.order.map(i=>pts[i]);
+      if (reordered.length === pts.length && reordered.every(Boolean)) {
+        const same = data.order.every((v,i)=>v===i);
+        let ri = 0;
+        const next = S.trip.stops.map(s => geocodedIds.has(s.id) ? reordered[ri++] : s);
+        if (next.every(Boolean) && ri === reordered.length) {
+          S.trip.stops = next;
+          pinHereFirst();
+          nudgeDismissed = true;
+          $("optimiseNudge")?.classList.add("hidden");
+          syncStops(true);
+          if (!silent) toast(same ? "Already the shortest drive" : "Reordered for a shorter drive");
+        }
+      }
     }
     S.route=data; S.trip.distanceM=data.distanceM; S.trip.durationS=data.durationS;
     if (!optimize && !silent) _analytics?.ping("route", { stops: pts.length, km: Math.round((data.distanceM||0)/1000) });
@@ -1517,7 +1552,13 @@ function drawMap(fit) {
     const cls=`map-pin${i===0?" pin-origin":last?" pin-dest":""}${active?" pin-active":""}`;
     const icon=L.divIcon({className:"",html:`<div class="${cls}">${i+1}</div>`,iconSize:[28,28],iconAnchor:[14,14]});
     const mk=L.marker([s.lat,s.lng],{icon}).addTo(S.map);
-    mk.on("click",()=>{ S.focusId=s.id; setSnap("full"); const inp=$("stopList").querySelector(`.stop-input[data-id="${s.id}"]`); inp?.scrollIntoView({block:"center"}); inp?.focus(); });
+    mk.on("click",()=>{
+      S.focusId=s.id;
+      hideSuggest();
+      const inp=$("stopList").querySelector(`.stop-input[data-id="${s.id}"]`);
+      inp?.closest(".stop-row")?.scrollIntoView({block:"nearest"});
+      if (S.snap === "collapsed") setSnap("mid");
+    });
     S.markers.push(mk);
   });
   updateHereDot();
@@ -1714,7 +1755,10 @@ function locate() {
     if (firstFix && (!S.hereLabel||S.hereLabel==="Your location")) {
       try {
         const d=await api(`/api/reverse?lat=${S.here.lat}&lon=${S.here.lng}`,{timeout:8000});
-        if(d.hit?.label) S.hereLabel=d.hit.label;
+        if(d.hit?.label) {
+          S.hereLabel=d.hit.label;
+          refreshHereSuggest();
+        }
       } catch {}
     }
   },(err)=>{
@@ -1893,7 +1937,7 @@ document.addEventListener("touchmove", (e) => {
   if (e.touches.length > 1) return;
   const t = e.target;
   if (!(t instanceof Element)) return;
-  if (t.closest(".screen-list, .stop-list, .modal-sheet, .action-row, .suggest-box, .leaflet-container, .feed, .users, .errs")) return;
+  if (t.closest(".screen-list, .stop-list, .modal-sheet, .action-row, .suggest-box, .leaflet-container")) return;
   e.preventDefault();
 }, { passive: false });
 
