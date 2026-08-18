@@ -39,16 +39,16 @@ try {
   // Static
   {
     const { status, text } = await req("/");
-    if (status === 200 && text.includes("app.js?v=29") && text.includes("styles.css?v=29")) ok("GET /", "cache v=29");
+    if (status === 200 && text.includes("app.js?v=30") && text.includes("styles.css?v=30")) ok("GET /", "cache v=30");
     else fail("GET /", "status " + status);
   }
   {
-    const { status, text } = await req("/styles.css?v=29");
+    const { status, text } = await req("/styles.css?v=30");
     if (status === 200 && text.includes(".screen-planner") && text.includes("pointer-events:none")) ok("GET styles.css");
     else fail("GET styles.css", "status " + status);
   }
   {
-    const { status, text } = await req("/app.js?v=29");
+    const { status, text } = await req("/app.js?v=30");
     if (status === 200 && text.includes("function pinHereFirst") && text.includes("hereDisplay")) ok("GET app.js");
     else fail("GET app.js", "status " + status);
   }
@@ -280,7 +280,7 @@ try {
   // IDs in HTML exist in JS
   {
     const html = (await req("/")).text;
-    const js = (await req("/app.js?v=29")).text;
+    const js = (await req("/app.js?v=30")).text;
     const ids = [...html.matchAll(/id="([^"]+)"/g)].map(m => m[1]);
     const missing = ids.filter(id => !js.includes('"' + id + '"') && !js.includes("'" + id + "'") && !["mapToggleIcon","mapToggleLabel","navTitle","navSub","continueTitle","continueSub","installTitle","installSub","iosShareWord"].includes(id));
     // map/list structural ids that JS must touch

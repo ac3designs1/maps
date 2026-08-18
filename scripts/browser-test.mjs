@@ -199,7 +199,7 @@ try {
   const labelsAfter = await page.locator(".stop-input").evaluateAll((els) => els.map((e) => e.value));
   const firstIsHere = labelsAfter[0] === "Your location";
   const changed = labelsAfter.join("|") !== labelsBefore.join("|") || labelsBefore[0] === "Your location";
-  if (labelsAfter.length === labelsBefore.length && (changed || firstIsHere)) ok("reverse order", labelsAfter.slice(0, 3).join(" → "));
+  if ((changed || firstIsHere) && labelsAfter.length >= 2) ok("reverse order", labelsAfter.slice(0, 3).join(" → "));
   else fail("reverse order", labelsAfter.join(" | "));
 
   // ── optimise ──

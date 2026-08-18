@@ -298,6 +298,17 @@ function openTrip(id) {
   const base = emptyTrip();
   S.trip = { ...base, ...raw, stops: raw.stops?.length ? raw.stops : base.stops };
   S.route=null; S.navigating=false; S.navI=0; nudgeDismissed=false;
+  pinHereFirst();
+  if (S.here) {
+    const hereStop = S.trip.stops.find(isHereStop);
+    if (hereStop) {
+      hereStop.lat = S.here.lat;
+      hereStop.lng = S.here.lng;
+      hereStop.here = true;
+      hereStop.query = hereDisplay();
+      hereStop.label = hereDisplay();
+    }
+  }
   rememberLast(id);
   syncStops(true);
   showTrip();
@@ -331,6 +342,14 @@ function saveTrip() {
   setRecords(mergeTrips([S.trip],S.records||readLocal()));
   renderList(); rememberLast(S.trip.id);
 }
+function flushSave() {
+  clearTimeout(S.saveTimer);
+  saveTrip();
+}
+window.addEventListener("pagehide", flushSave);
+document.addEventListener("visibilitychange", () => {
+  if (document.visibilityState === "hidden") flushSave();
+});
 
 /* ─── autocomplete ─── */
 function hideSuggest() {
@@ -441,7 +460,10 @@ function applyHit(hit) {
   hideSuggest();
   const input = $("stopList").querySelector(`.stop-input[data-id="${stop.id}"]`);
   if (input) { input.value = displayVal; input.classList.remove("unresolved"); }
-  if (isHere) pinHereFirst();
+  if (isHere) {
+    for (const s of S.trip.stops) { if (s.id !== stop.id) s.here = false; }
+    pinHereFirst();
+  }
   syncStops(true);
   updateRowMeta(); scheduleSave(); scheduleRoute(false); buzz();
   const idx = S.trip.stops.findIndex(s=>s.id===stop.id);
@@ -649,17 +671,56 @@ function bindStopInput(input) {
   input.addEventListener("focus", () => {
     S.focusId = id;
     setSnap("full");
-    if (S.here&&!input.value) showHereSuggest();
+    const stop = S.trip?.stops.find(s=>s.id===id);
+    if (isHereStop(stop)) showHereSuggest();
+    else if (S.here&&!input.value) showHereSuggest();
     requestAnimationFrame(()=>positionSuggest());
+  });
+
+  input.addEventListener("blur", () => {
+    const stop = S.trip?.stops.find(s=>s.id===id);
+    if (!stop) return;
+    if ((stop.here || isHereStop(stop)) && input.value.trim().length < 2) {
+      stop.query = hereDisplay();
+      stop.label = hereDisplay();
+      stop.here = true;
+      if (S.here) { stop.lat = S.here.lat; stop.lng = S.here.lng; }
+      input.value = hereDisplay();
+      scheduleSave();
+    }
   });
 
   input.addEventListener("input", () => {
     const stop = S.trip?.stops.find(s=>s.id===id);
     if (!stop) return;
+    const q = input.value.trim();
+    const qn = q.toLowerCase();
+    const lockedHere = !!(stop.here || isHereStop(stop));
+    if (lockedHere) {
+      const appended = qn.startsWith("your location") && qn !== "your location";
+      const prefixing = qn.length > 0 && qn !== "your location" && "your location".startsWith(qn);
+      if (appended || prefixing) {
+        stop.query = hereDisplay();
+        stop.label = hereDisplay();
+        stop.here = true;
+        if (S.here) { stop.lat = S.here.lat; stop.lng = S.here.lng; }
+        input.value = hereDisplay();
+        showHereSuggest();
+        scheduleSave();
+        return;
+      }
+      if (q.length < 2) {
+        stop.here = true;
+        stop.query = hereDisplay();
+        stop.label = hereDisplay();
+        if (S.here) { stop.lat = S.here.lat; stop.lng = S.here.lng; }
+        if (!q) showHereSuggest();
+        return;
+      }
+    }
     stop.query=input.value; stop.lat=null; stop.lng=null; stop.label=""; stop.here=false;
     input.classList.toggle("unresolved",!!input.value.trim());
     clearTimeout(S.suggestTimer);
-    const q = input.value.trim();
     if (q.length<2) { if(S.here&&!q) showHereSuggest(); else hideSuggest(); return; }
     S.suggestTimer = setTimeout(async ()=>{
       // Show loading spinner immediately
@@ -704,6 +765,7 @@ $("stopList").addEventListener("click", e => {
   if (del&&S.trip) {
     const i = S.trip.stops.findIndex(s=>s.id===del.dataset.id);
     if (i<0) return;
+    if (isHereStop(S.trip.stops[i])) return toast("Your location stays as the start");
     buzz();
     const prev = JSON.parse(JSON.stringify(S.trip.stops));
     if (S.trip.stops.length<=2) S.trip.stops[i]={id:uid(),query:"",label:"",lat:null,lng:null};
@@ -790,6 +852,7 @@ $("btnAddStop").onclick = () => {
 $("btnPaste").onclick = () => { if (!S.trip) return; openModal("Paste addresses", pasteBody()); };
 $("btnReverse").onclick = () => {
   if (!S.trip) return;
+  compactEmptyStops();
   S.trip.stops.reverse();
   pinHereFirst();
   syncStops(true); scheduleSave(); scheduleRoute(false);
@@ -797,6 +860,9 @@ $("btnReverse").onclick = () => {
 };
 $("btnOptimise").onclick = () => {
   if (!S.trip) return;
+  compactEmptyStops();
+  pinHereFirst();
+  syncStops(true);
   if (geocodedStops().length<3) return toast("Add at least 3 places first");
   $("btnOptimise").classList.add("loading");
   _analytics?.ping("optimise", { stops: geocodedStops().length });
@@ -1272,20 +1338,41 @@ function applyLocationToFirstStop() {
   updateRowMeta(); scheduleSave(); scheduleRoute(false);
 }
 
+function compactEmptyStops() {
+  if (!S.trip) return;
+  const keep = S.trip.stops.filter(s => isHereStop(s) || (s.label||s.query||"").trim() || Number.isFinite(s.lat));
+  while (keep.length < 2) keep.push({id:uid(),query:"",label:"",lat:null,lng:null});
+  S.trip.stops = keep;
+}
+
 function pinHereFirst() {
   if (!S.trip) return false;
+  const idxs = [];
+  S.trip.stops.forEach((s, i) => { if (isHereStop(s)) idxs.push(i); });
+  if (!idxs.length) return false;
+  for (let k = idxs.length - 1; k >= 1; k--) {
+    const extra = S.trip.stops[idxs[k]];
+    extra.here = false;
+    extra.query = "";
+    extra.label = "";
+    extra.lat = null;
+    extra.lng = null;
+  }
   const i = S.trip.stops.findIndex(isHereStop);
-  if (i <= 0) return false;
-  const [moved] = S.trip.stops.splice(i, 1);
+  if (i < 0) return false;
+  const moved = S.trip.stops[i];
   moved.here = true;
   moved.query = hereDisplay();
   moved.label = hereDisplay();
+  if (i === 0) return false;
+  S.trip.stops.splice(i, 1);
   S.trip.stops.unshift(moved);
   return true;
 }
 
 function locate() {
   if (!navigator.geolocation) return;
+  let locDenied = false;
   navigator.geolocation.watchPosition(async pos => {
     const firstFix = !S.here;
     S.here={lat:pos.coords.latitude,lng:pos.coords.longitude};
@@ -1306,7 +1393,11 @@ function locate() {
       hereStop.here = true;
     }
     if (firstFix) applyLocationToFirstStop();
-  },()=>{},{enableHighAccuracy:true,maximumAge:15000,timeout:12000});
+  },(err)=>{
+    if (locDenied) return;
+    locDenied = true;
+    if (err && err.code === 1) toast("Location is off — type a start address");
+  },{enableHighAccuracy:true,maximumAge:15000,timeout:12000});
 }
 
 /* ─── online/offline ─── */

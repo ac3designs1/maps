@@ -474,7 +474,8 @@ input,textarea { outline:none; border:none; -webkit-appearance:none; background:
 .grip-btn { touch-action:none; cursor:grab; -webkit-user-select:none; user-select:none; }
 .grip-btn:active { cursor:grabbing; }
 .del-btn:active { color:var(--red); background:rgba(234,67,53,.07); }
-.stop-row.is-here .grip-btn { visibility:hidden; pointer-events:none; }
+.stop-row.is-here .grip-btn,
+.stop-row.is-here .del-btn { visibility:hidden; pointer-events:none; }
 .stop-list.reordering { overflow:hidden; touch-action:none; }
 
 /* ── Action row ──────────────────────────────────── */
