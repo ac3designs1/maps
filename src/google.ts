@@ -279,11 +279,22 @@ export async function googleGeocode(q: string, lat?: number, lon?: number): Prom
 
 type LatLng = { lat: number; lng: number };
 
+export type TrafficSpeed = "NORMAL" | "SLOW" | "TRAFFIC_JAM";
+
+export type TrafficSegment = {
+  speed: TrafficSpeed;
+  geometry: [number, number][];
+};
+
 export type GoogleRoute = {
   distanceM: number;
   durationS: number;
+  durationStaticS?: number;
+  trafficDelayS?: number;
+  traffic?: boolean;
   geometry: [number, number][];
   legs: { distanceM: number; durationS: number }[];
+  segments?: TrafficSegment[];
 };
 
 function avoidParam(opts?: { avoidTolls?: boolean; avoidFerries?: boolean }) {
@@ -342,11 +353,43 @@ function parseDurationS(v: unknown): number {
   return m ? Number(m[1]) : 0;
 }
 
+function asSpeed(raw?: string): TrafficSpeed {
+  if (raw === "SLOW" || raw === "TRAFFIC_JAM") return raw;
+  return "NORMAL";
+}
+
+function intervalsToSegments(
+  geometry: [number, number][],
+  intervals?: Array<{ startPolylinePointIndex?: number; endPolylinePointIndex?: number; speed?: string }>,
+): TrafficSegment[] {
+  if (!intervals?.length || geometry.length < 2) return [];
+  return intervals
+    .map((iv) => {
+      const start = Math.max(0, iv.startPolylinePointIndex ?? 0);
+      const end = Math.min(geometry.length - 1, iv.endPolylinePointIndex ?? geometry.length - 1);
+      return { speed: asSpeed(iv.speed), geometry: geometry.slice(start, end + 1) };
+    })
+    .filter((s) => s.geometry.length >= 2);
+}
+
+function withTraffic(route: GoogleRoute, liveS: number, staticS: number, usedLive: boolean): GoogleRoute {
+  const durationStaticS = staticS > 0 ? staticS : liveS;
+  return {
+    ...route,
+    durationS: liveS || route.durationS,
+    durationStaticS,
+    trafficDelayS: Math.max(0, (liveS || route.durationS) - durationStaticS),
+    traffic: usedLive,
+  };
+}
+
 const GOOGLE_MAX_PTS = 25;
+let routesTrafficOk: boolean | null = null;
 
 async function googleRoutesCompute(
   pts: LatLng[],
   opts?: { avoidTolls?: boolean; avoidFerries?: boolean },
+  live = true,
 ): Promise<GoogleRoute | null> {
   const key = googleKey();
   const origin = pts[0];
@@ -355,7 +398,7 @@ async function googleRoutesCompute(
     origin: { location: { latLng: { latitude: origin.lat, longitude: origin.lng } } },
     destination: { location: { latLng: { latitude: dest.lat, longitude: dest.lng } } },
     travelMode: "DRIVE",
-    routingPreference: "TRAFFIC_UNAWARE",
+    routingPreference: live ? "TRAFFIC_AWARE" : "TRAFFIC_UNAWARE",
     polylineQuality: "HIGH_QUALITY",
     polylineEncoding: "ENCODED_POLYLINE",
     computeAlternativeRoutes: false,
@@ -363,6 +406,7 @@ async function googleRoutesCompute(
     regionCode: "AU",
     units: "METRIC",
   };
+  if (live) body.departureTime = new Date(Date.now() + 5000).toISOString();
   const mid = pts.slice(1, -1);
   if (mid.length) {
     body.intermediates = mid.map((p) => ({
@@ -382,7 +426,7 @@ async function googleRoutesCompute(
         "Content-Type": "application/json",
         "X-Goog-Api-Key": key,
         "X-Goog-FieldMask":
-          "routes.duration,routes.distanceMeters,routes.polyline.encodedPolyline,routes.legs.duration,routes.legs.distanceMeters,routes.legs.polyline.encodedPolyline,routes.legs.steps.polyline.encodedPolyline",
+          "routes.duration,routes.staticDuration,routes.distanceMeters,routes.polyline.encodedPolyline,routes.travelAdvisory.speedReadingIntervals,routes.legs.duration,routes.legs.staticDuration,routes.legs.distanceMeters,routes.legs.polyline.encodedPolyline,routes.legs.steps.polyline.encodedPolyline,routes.legs.travelAdvisory.speedReadingIntervals",
       },
       body: JSON.stringify(body),
     },
@@ -390,12 +434,28 @@ async function googleRoutesCompute(
   )) as {
     routes?: Array<{
       duration?: string;
+      staticDuration?: string;
       distanceMeters?: number;
       polyline?: { encodedPolyline?: string };
+      travelAdvisory?: {
+        speedReadingIntervals?: Array<{
+          startPolylinePointIndex?: number;
+          endPolylinePointIndex?: number;
+          speed?: string;
+        }>;
+      };
       legs?: Array<{
         duration?: string;
+        staticDuration?: string;
         distanceMeters?: number;
         polyline?: { encodedPolyline?: string };
+        travelAdvisory?: {
+          speedReadingIntervals?: Array<{
+            startPolylinePointIndex?: number;
+            endPolylinePointIndex?: number;
+            speed?: string;
+          }>;
+        };
         steps?: Array<{ polyline?: { encodedPolyline?: string } }>;
       }>;
     }>;
@@ -404,31 +464,45 @@ async function googleRoutesCompute(
   const route = data.routes?.[0];
   if (!route) return null;
   const geometry: [number, number][] = [];
-  for (const leg of route.legs || []) {
-    const steps = leg.steps || [];
-    if (steps.length) {
-      for (const step of steps) appendPoly(geometry, step.polyline?.encodedPolyline);
-    } else {
-      appendPoly(geometry, leg.polyline?.encodedPolyline);
+  // Prefer the route polyline so traffic speed indexes line up
+  if (live) appendPoly(geometry, route.polyline?.encodedPolyline);
+  if (geometry.length < 2) {
+    for (const leg of route.legs || []) {
+      const steps = leg.steps || [];
+      if (steps.length) {
+        for (const step of steps) appendPoly(geometry, step.polyline?.encodedPolyline);
+      } else {
+        appendPoly(geometry, leg.polyline?.encodedPolyline);
+      }
     }
   }
   if (geometry.length < 2) appendPoly(geometry, route.polyline?.encodedPolyline);
   const legs = (route.legs || []).map((l) => ({
     distanceM: l.distanceMeters || 0,
-    durationS: parseDurationS(l.duration),
+    durationS: parseDurationS(l.duration) || parseDurationS(l.staticDuration),
   }));
   if (geometry.length < 2) return null;
-  return {
-    distanceM: route.distanceMeters || legs.reduce((s, l) => s + l.distanceM, 0),
-    durationS: parseDurationS(route.duration) || legs.reduce((s, l) => s + l.durationS, 0),
-    geometry,
-    legs: legs.length ? legs : [{ distanceM: route.distanceMeters || 0, durationS: parseDurationS(route.duration) }],
-  };
+  const liveS = parseDurationS(route.duration) || legs.reduce((s, l) => s + l.durationS, 0);
+  const staticS = parseDurationS(route.staticDuration);
+  const segments = intervalsToSegments(geometry, route.travelAdvisory?.speedReadingIntervals);
+  return withTraffic(
+    {
+      distanceM: route.distanceMeters || legs.reduce((s, l) => s + l.distanceM, 0),
+      durationS: liveS,
+      geometry,
+      legs: legs.length ? legs : [{ distanceM: route.distanceMeters || 0, durationS: liveS }],
+      segments: segments.length ? segments : undefined,
+    },
+    liveS,
+    staticS,
+    live,
+  );
 }
 
 async function googleDirections(
   pts: LatLng[],
   opts?: { avoidTolls?: boolean; avoidFerries?: boolean },
+  live = true,
 ): Promise<GoogleRoute | null> {
   const origin = pts[0];
   const dest = pts[pts.length - 1];
@@ -444,6 +518,10 @@ async function googleDirections(
   if (mid.length) u.searchParams.set("waypoints", mid.map(loc).join("|"));
   const avoid = avoidParam(opts);
   if (avoid) u.searchParams.set("avoid", avoid);
+  if (live) {
+    u.searchParams.set("departure_time", "now");
+    u.searchParams.set("traffic_model", "best_guess");
+  }
 
   const data = (await googleFetch(u.toString(), {}, 20000)) as {
     status?: string;
@@ -452,6 +530,7 @@ async function googleDirections(
       legs?: Array<{
         distance?: { value?: number };
         duration?: { value?: number };
+        duration_in_traffic?: { value?: number };
         steps?: Array<{ polyline?: { points?: string } }>;
       }>;
     }>;
@@ -469,30 +548,61 @@ async function googleDirections(
   if (geometry.length < 2) appendPoly(geometry, route.overview_polyline?.points);
   const legs = (route.legs || []).map((l) => ({
     distanceM: l.distance?.value || 0,
-    durationS: l.duration?.value || 0,
+    durationS: l.duration_in_traffic?.value || l.duration?.value || 0,
   }));
   if (geometry.length < 2) return null;
-  return {
-    distanceM: legs.reduce((s, l) => s + l.distanceM, 0),
-    durationS: legs.reduce((s, l) => s + l.durationS, 0),
-    geometry,
-    legs,
-  };
+  const liveS = legs.reduce((s, l) => s + l.durationS, 0);
+  const staticS = (route.legs || []).reduce((s, l) => s + (l.duration?.value || 0), 0);
+  return withTraffic(
+    {
+      distanceM: legs.reduce((s, l) => s + l.distanceM, 0),
+      durationS: liveS,
+      geometry,
+      legs,
+    },
+    liveS,
+    staticS,
+    live && staticS > 0,
+  );
+}
+
+function goodRoute(r: GoogleRoute | null, n: number) {
+  return !!(r && r.geometry.length > n);
 }
 
 async function oneGoogleRoute(
   pts: LatLng[],
   opts?: { avoidTolls?: boolean; avoidFerries?: boolean },
 ): Promise<GoogleRoute | null> {
-  try {
-    const routed = await googleRoutesCompute(pts, opts);
-    if (routed && routed.geometry.length > pts.length) return routed;
-  } catch {
-    /* Directions API fallback */
+  if (routesTrafficOk !== false) {
+    try {
+      const routed = await googleRoutesCompute(pts, opts, true);
+      if (goodRoute(routed, pts.length)) {
+        routesTrafficOk = true;
+        return routed;
+      }
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : "";
+      if (/PERMISSION|403|routingPreference|TRAFFIC_AWARE|has not been used/i.test(msg)) {
+        routesTrafficOk = false;
+      }
+    }
   }
   try {
-    const directed = await googleDirections(pts, opts);
-    if (directed && directed.geometry.length > pts.length) return directed;
+    const directed = await googleDirections(pts, opts, true);
+    if (goodRoute(directed, pts.length)) return directed;
+  } catch {
+    /* static fallback */
+  }
+  try {
+    const routed = await googleRoutesCompute(pts, opts, false);
+    if (goodRoute(routed, pts.length)) return routed;
+  } catch {
+    /* Directions static */
+  }
+  try {
+    const directed = await googleDirections(pts, opts, false);
+    if (goodRoute(directed, pts.length)) return directed;
   } catch {
     /* caller falls back to OSRM */
   }
@@ -514,12 +624,13 @@ export async function googleDurationMatrix(
   u.searchParams.set("region", "au");
   u.searchParams.set("units", "metric");
   u.searchParams.set("key", key);
+  u.searchParams.set("departure_time", "now");
   const avoid = avoidParam(opts);
   if (avoid) u.searchParams.set("avoid", avoid);
 
   const data = (await googleFetch(u.toString(), {}, 18000)) as {
     status?: string;
-    rows?: Array<{ elements?: Array<{ status?: string; duration?: { value?: number } }> }>;
+    rows?: Array<{ elements?: Array<{ status?: string; duration?: { value?: number }; duration_in_traffic?: { value?: number } }> }>;
   };
   if (data.status && data.status !== "OK") return null;
   const rows = data.rows || [];
@@ -528,7 +639,7 @@ export async function googleDurationMatrix(
   for (const row of rows) {
     const line: number[] = [];
     for (const el of row.elements || []) {
-      const v = el.duration?.value;
+      const v = el.duration_in_traffic?.value ?? el.duration?.value;
       line.push(el.status === "OK" && Number.isFinite(v) ? (v as number) : 1e12);
     }
     if (line.length !== pts.length) return null;
@@ -548,8 +659,11 @@ export async function googleDrivingRoute(
 
   const geometry: [number, number][] = [];
   const legs: { distanceM: number; durationS: number }[] = [];
+  const segments: TrafficSegment[] = [];
   let distanceM = 0;
   let durationS = 0;
+  let durationStaticS = 0;
+  let traffic = false;
   for (let i = 0; i < pts.length - 1; i += GOOGLE_MAX_PTS - 1) {
     const slice = pts.slice(i, Math.min(pts.length, i + GOOGLE_MAX_PTS));
     const part = await oneGoogleRoute(slice, opts);
@@ -557,11 +671,23 @@ export async function googleDrivingRoute(
     if (geometry.length && part.geometry.length) part.geometry.shift();
     geometry.push(...part.geometry);
     legs.push(...part.legs);
+    if (part.segments) segments.push(...part.segments);
     distanceM += part.distanceM;
     durationS += part.durationS;
+    durationStaticS += part.durationStaticS || part.durationS;
+    if (part.traffic) traffic = true;
   }
   if (geometry.length <= pts.length) return null;
-  return { distanceM, durationS, geometry, legs };
+  return {
+    distanceM,
+    durationS,
+    durationStaticS,
+    trafficDelayS: Math.max(0, durationS - durationStaticS),
+    traffic,
+    geometry,
+    legs,
+    segments: segments.length ? segments : undefined,
+  };
 }
 
 export async function googleReverse(lat: number, lon: number): Promise<SuggestHit | null> {

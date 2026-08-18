@@ -27,7 +27,8 @@ const S = {
   line: null,
   lineOutline: null,
   markers: [],
-  hereDot: null,
+  trafficLines: [],
+  trafficTimer: 0,
   snap: "mid",
   navI: 0,
   navigating: false,
@@ -233,6 +234,7 @@ function showList() {
   $("tripScreen").classList.remove("is-open");
   document.activeElement?.blur();
   hideSuggest();
+  stopTrafficWatch();
   renderContinue();
 }
 function showTrip() {
@@ -242,6 +244,7 @@ function showTrip() {
   if (history.state?.tp !== 1) {
     try { history.pushState({ tp: 1 }, ""); } catch {}
   }
+  startTrafficWatch();
   requestAnimationFrame(() => {
     S.map?.invalidateSize();
     S.map?.dragging?.enable();
@@ -391,6 +394,9 @@ function flushSave() {
 window.addEventListener("pagehide", flushSave);
 document.addEventListener("visibilitychange", () => {
   if (document.visibilityState === "hidden") flushSave();
+  else if ($("tripScreen").classList.contains("is-open") && geocodedStops().length >= 2 && !S.routing) {
+    scheduleRoute(false, true);
+  }
 });
 
 /* ─── autocomplete ─── */
@@ -681,7 +687,9 @@ function updateSummary() {
     return;
   }
   title.textContent = `${fmtDur(r.durationS)} · ${fmtKm(r.distanceM)}`;
-  sub.textContent   = `${S.trip.title||"Trip"}${S.trip.roundtrip?" · round trip":""}`;
+  const delay = r.trafficDelayS || 0;
+  const trafficNote = delay >= 90 ? ` · +${fmtDur(delay)} traffic` : "";
+  sub.textContent   = `${S.trip.title||"Trip"}${S.trip.roundtrip?" · round trip":""}${trafficNote}`;
   start.disabled    = false;
 }
 
@@ -1259,18 +1267,18 @@ function pickBackupFile() {
 }
 
 /* ─── routing ─── */
-function scheduleRoute(optimize) {
+function scheduleRoute(optimize, silent) {
   clearTimeout(S.routeTimer);
-  S.routeTimer=setTimeout(()=>routeNow(optimize),optimize?40:260);
+  S.routeTimer=setTimeout(()=>routeNow(optimize, silent),optimize?40:260);
 }
-async function routeNow(optimize) {
+async function routeNow(optimize, silent) {
   if (!S.trip) return;
   const pts=geocodedStops();
   const seq=++S.routeSeq;
   if (pts.length<2) {
     S.route=null; S.routing=false; drawMap(true); updateRowMeta(); return;
   }
-  S.routing=true; updateSummary();
+  if (!silent) { S.routing=true; updateSummary(); }
   try {
     const data=await api("/api/route",{method:"POST",timeout:35000,body:JSON.stringify({
       points:pts.map(p=>({lat:p.lat,lng:p.lng})),
@@ -1288,14 +1296,14 @@ async function routeNow(optimize) {
       nudgeDismissed = true;
       $("optimiseNudge")?.classList.add("hidden");
       syncStops(true);
-      toast(same ? "Already the shortest drive" : "Reordered for a shorter drive");
+      if (!silent) toast(same ? "Already the shortest drive" : "Reordered for a shorter drive");
     }
     S.route=data; S.trip.distanceM=data.distanceM; S.trip.durationS=data.durationS;
-    if (!optimize) _analytics?.ping("route", { stops: pts.length, km: Math.round((data.distanceM||0)/1000) });
-    drawMap(true); scheduleSave();
+    if (!optimize && !silent) _analytics?.ping("route", { stops: pts.length, km: Math.round((data.distanceM||0)/1000) });
+    drawMap(!silent); scheduleSave();
   } catch(err) {
     if (seq!==S.routeSeq||err.cancelled) return;
-    toast(err.message);
+    if (!silent) toast(err.message);
   } finally {
     if (seq===S.routeSeq) {
       S.routing=false;
@@ -1303,6 +1311,20 @@ async function routeNow(optimize) {
       updateRowMeta();
     }
   }
+}
+
+function startTrafficWatch() {
+  clearInterval(S.trafficTimer);
+  S.trafficTimer = setInterval(() => {
+    if (document.hidden || S.routing || !S.trip) return;
+    if (!$("tripScreen").classList.contains("is-open")) return;
+    if (geocodedStops().length < 2) return;
+    scheduleRoute(false, true);
+  }, 120000);
+}
+function stopTrafficWatch() {
+  clearInterval(S.trafficTimer);
+  S.trafficTimer = 0;
 }
 
 /* ─── map ─── */
@@ -1340,6 +1362,7 @@ function drawMap(fit) {
   S.markers.forEach(m=>m.remove()); S.markers=[];
   if (S.lineOutline) { S.lineOutline.remove(); S.lineOutline=null; }
   if (S.line) { S.line.remove(); S.line=null; }
+  (S.trafficLines||[]).forEach(l=>l.remove()); S.trafficLines=[];
   const pts=geocodedStops();
   pts.forEach((s,i) => {
     const last=i===pts.length-1&&!S.trip?.roundtrip;
@@ -1351,16 +1374,27 @@ function drawMap(fit) {
     S.markers.push(mk);
   });
   updateHereDot();
-  if (!fit) return;
   const pad=mapPad();
   try {
     if (S.route?.geometry?.length) {
-      // White outline for visibility on all map tiles
       S.lineOutline=L.polyline(S.route.geometry,{color:"#fff",weight:9,opacity:.55,smoothFactor:0}).addTo(S.map);
-      S.line=L.polyline(S.route.geometry,{color:"#1A73E8",weight:5.5,opacity:.96,smoothFactor:0}).addTo(S.map);
-      S.map.fitBounds(S.line.getBounds(),pad);
-    } else if (pts.length===1) S.map.setView([pts[0].lat,pts[0].lng],14);
-    else if (pts.length>1) S.map.fitBounds(L.latLngBounds(pts.map(p=>[p.lat,p.lng])),pad);
+      const segs = S.route.segments;
+      const colors = { NORMAL:"#1A73E8", SLOW:"#F9AB00", TRAFFIC_JAM:"#D93025" };
+      if (Array.isArray(segs) && segs.length) {
+        segs.forEach(seg => {
+          if (!seg?.geometry?.length) return;
+          const ln=L.polyline(seg.geometry,{color:colors[seg.speed]||"#1A73E8",weight:5.5,opacity:.96,smoothFactor:0}).addTo(S.map);
+          S.trafficLines.push(ln);
+        });
+        S.line = S.trafficLines[0] || null;
+      } else {
+        S.line=L.polyline(S.route.geometry,{color:"#1A73E8",weight:5.5,opacity:.96,smoothFactor:0}).addTo(S.map);
+      }
+      if (fit) S.map.fitBounds(S.lineOutline.getBounds(),pad);
+    } else if (fit) {
+      if (pts.length===1) S.map.setView([pts[0].lat,pts[0].lng],14);
+      else if (pts.length>1) S.map.fitBounds(L.latLngBounds(pts.map(p=>[p.lat,p.lng])),pad);
+    }
   } catch {}
 }
 

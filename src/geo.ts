@@ -341,9 +341,13 @@ function coordStr(pts: LngLat[]) {
 export type RouteResult = {
   distanceM: number;
   durationS: number;
+  durationStaticS?: number;
+  trafficDelayS?: number;
+  traffic?: boolean;
   geometry: [number, number][];
   order?: number[];
   legs: { distanceM: number; durationS: number }[];
+  segments?: Array<{ speed: string; geometry: [number, number][] }>;
 };
 
 function parseRoute(json: {
