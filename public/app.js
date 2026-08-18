@@ -654,12 +654,19 @@ $("stopList").addEventListener("pointerdown", e => {
 $("btnAddStop").onclick = () => {
   if (!S.trip) return;
   const stops = S.trip.stops;
-  const destLike = !S.trip.roundtrip&&stops.length>=2;
-  const neu = {id:uid(),query:"",label:"",lat:null,lng:null};
-  if (destLike) stops.splice(stops.length-1,0,neu); else stops.push(neu);
+  const destLike = !S.trip.roundtrip && stops.length >= 2;
+  const neu = { id:uid(), query:"", label:"", lat:null, lng:null };
+  if (destLike) stops.splice(stops.length-1, 0, neu); else stops.push(neu);
   syncStops(true); scheduleSave(); setSnap("full");
-  const inputs = $("stopList").querySelectorAll(".stop-input");
-  (destLike?inputs[inputs.length-2]:inputs[inputs.length-1])?.focus();
+  // Focus and scroll the new stop into view
+  setTimeout(() => {
+    const inputs = $("stopList").querySelectorAll(".stop-input");
+    const target = destLike ? inputs[inputs.length-2] : inputs[inputs.length-1];
+    if (target) {
+      target.focus();
+      target.closest(".stop-row")?.scrollIntoView({ block:"center", behavior:"smooth" });
+    }
+  }, 60);
 };
 
 $("btnPaste").onclick = () => { if (!S.trip) return; openModal("Paste addresses", pasteBody()); };
