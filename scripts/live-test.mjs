@@ -39,19 +39,19 @@ try {
   // Static
   {
     const { status, text } = await req("/");
-    if (status === 200 && text.includes("app.js?v=38") && text.includes("styles.css?v=38") && text.includes("vendor/leaflet.js") && !text.includes("unpkg.com/leaflet")) ok("GET /", "cache v=38 local leaflet");
+    if (status === 200 && text.includes("app.js?v=39") && text.includes("styles.css?v=39") && text.includes("vendor/leaflet.js") && !text.includes("unpkg.com/leaflet")) ok("GET /", "cache v=39 local leaflet");
     else fail("GET /", "status " + status);
   }
   {
-    const { status, text } = await req("/styles.css?v=38");
+    const { status, text } = await req("/styles.css?v=39");
     if (status === 200 && text.includes(".screen-planner") && text.includes("pointer-events:none") && text.includes(".action-chip.is-hot") && text.includes(".mrow.checked") && text.includes("pinch-zoom") && text.includes("calc(100% - 58px")) ok("GET styles.css");
     else fail("GET styles.css", "status " + status);
   }
   {
-    const { status, text } = await req("/app.js?v=38");
+    const { status, text } = await req("/app.js?v=39");
     if (status === 200 && text.includes("function pinHereFirst") && text.includes("hereDisplay")) ok("GET app.js");
     else fail("GET app.js", "status " + status);
-    const guards = ["function backToList", "lockStart:isHereStop", "Where to?", "readOnly", "is-hot", "function updateHereDot", "You're offline.", "function forgetLast", "isHereStop(stop) && !hit.here"];
+    const guards = ["function backToList", "lockStart:isHereStop", "Where to?", "readOnly", "is-hot", "function updateHereDot", "You're offline.", "function forgetLast", "isHereStop(stop) && !hit.here", "smoothFactor:0"];
     const missing = guards.filter(s => !text.includes(s));
     if (!missing.length) ok("planner flow guards in JS");
     else fail("planner flow guards in JS", missing.join(", "));
@@ -79,12 +79,12 @@ try {
     else fail("GET icon-180.png", "status " + status);
   }
   {
-    const { status, text } = await req("/vendor/leaflet.js?v=38");
+    const { status, text } = await req("/vendor/leaflet.js?v=39");
     if (status === 200 && text.length > 10000) ok("GET vendor leaflet.js", text.length + " bytes");
     else fail("GET vendor leaflet.js", "status " + status);
   }
   {
-    const { status, text } = await req("/vendor/leaflet.css?v=38");
+    const { status, text } = await req("/vendor/leaflet.css?v=39");
     if (status === 200 && text.includes(".leaflet-container")) ok("GET vendor leaflet.css");
     else fail("GET vendor leaflet.css", "status " + status);
   }
@@ -175,8 +175,8 @@ try {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ points: [sydney, parra] }),
     });
-    if (status === 200 && json.distanceM > 1000 && json.geometry?.length > 2 && json.legs?.length === 1)
-      ok("route 2 stops", Math.round(json.distanceM / 1000) + "km " + Math.round(json.durationS / 60) + "min");
+    if (status === 200 && json.distanceM > 1000 && json.geometry?.length > 50 && json.legs?.length === 1)
+      ok("route 2 stops", Math.round(json.distanceM / 1000) + "km " + Math.round(json.durationS / 60) + "min pts=" + json.geometry.length);
     else fail("route 2 stops", JSON.stringify({ status, d: json?.distanceM, legs: json?.legs?.length }));
   }
   {
@@ -207,8 +207,8 @@ try {
       ok("optimise does not lock the last stop", JSON.stringify(order));
     else if (Array.isArray(order) && order[0] === 0)
       ok("optimise does not lock the last stop", "last moved or already optimal " + JSON.stringify(order));
-    if (json?.distanceM > 0 && json.geometry?.length) ok("optimise has geometry");
-    else fail("optimise has geometry", "missing");
+    if (json?.distanceM > 0 && json.geometry?.length > 50) ok("optimise has geometry", json.geometry.length + " pts");
+    else fail("optimise has geometry", "pts=" + json?.geometry?.length);
   }
   {
     const { json } = await req("/api/route", {
@@ -339,7 +339,7 @@ try {
   // IDs in HTML exist in JS
   {
     const html = (await req("/")).text;
-    const js = (await req("/app.js?v=38")).text;
+    const js = (await req("/app.js?v=39")).text;
     const ids = [...html.matchAll(/id="([^"]+)"/g)].map(m => m[1]);
     const missing = ids.filter(id => !js.includes('"' + id + '"') && !js.includes("'" + id + "'") && !["mapToggleIcon","mapToggleLabel","navTitle","navSub","continueTitle","continueSub","installTitle","installSub","iosShareWord"].includes(id));
     // map/list structural ids that JS must touch

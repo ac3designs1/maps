@@ -1356,8 +1356,8 @@ function drawMap(fit) {
   try {
     if (S.route?.geometry?.length) {
       // White outline for visibility on all map tiles
-      S.lineOutline=L.polyline(S.route.geometry,{color:"#fff",weight:9,opacity:.55}).addTo(S.map);
-      S.line=L.polyline(S.route.geometry,{color:"#1A73E8",weight:5.5,opacity:.96}).addTo(S.map);
+      S.lineOutline=L.polyline(S.route.geometry,{color:"#fff",weight:9,opacity:.55,smoothFactor:0}).addTo(S.map);
+      S.line=L.polyline(S.route.geometry,{color:"#1A73E8",weight:5.5,opacity:.96,smoothFactor:0}).addTo(S.map);
       S.map.fitBounds(S.line.getBounds(),pad);
     } else if (pts.length===1) S.map.setView([pts[0].lat,pts[0].lng],14);
     else if (pts.length>1) S.map.fitBounds(L.latLngBounds(pts.map(p=>[p.lat,p.lng])),pad);

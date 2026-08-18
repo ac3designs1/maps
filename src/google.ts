@@ -299,6 +299,7 @@ function loc(p: LatLng) {
 
 function decodePolyline(str: string): [number, number][] {
   const pts: [number, number][] = [];
+  if (!str) return pts;
   let index = 0;
   let lat = 0;
   let lng = 0;
@@ -323,6 +324,179 @@ function decodePolyline(str: string): [number, number][] {
     pts.push([lat / 1e5, lng / 1e5]);
   }
   return pts;
+}
+
+function appendPoly(target: [number, number][], encoded?: string) {
+  const decoded = decodePolyline(encoded || "");
+  if (target.length && decoded.length) {
+    const a = target[target.length - 1];
+    const b = decoded[0];
+    if (a[0] === b[0] && a[1] === b[1]) decoded.shift();
+  }
+  target.push(...decoded);
+}
+
+function parseDurationS(v: unknown): number {
+  if (typeof v === "number" && Number.isFinite(v)) return v;
+  const m = String(v || "").match(/^([\d.]+)s$/);
+  return m ? Number(m[1]) : 0;
+}
+
+const GOOGLE_MAX_PTS = 25;
+
+async function googleRoutesCompute(
+  pts: LatLng[],
+  opts?: { avoidTolls?: boolean; avoidFerries?: boolean },
+): Promise<GoogleRoute | null> {
+  const key = googleKey();
+  const origin = pts[0];
+  const dest = pts[pts.length - 1];
+  const body: Record<string, unknown> = {
+    origin: { location: { latLng: { latitude: origin.lat, longitude: origin.lng } } },
+    destination: { location: { latLng: { latitude: dest.lat, longitude: dest.lng } } },
+    travelMode: "DRIVE",
+    routingPreference: "TRAFFIC_UNAWARE",
+    polylineQuality: "HIGH_QUALITY",
+    polylineEncoding: "ENCODED_POLYLINE",
+    computeAlternativeRoutes: false,
+    languageCode: "en-AU",
+    regionCode: "AU",
+    units: "METRIC",
+  };
+  const mid = pts.slice(1, -1);
+  if (mid.length) {
+    body.intermediates = mid.map((p) => ({
+      location: { latLng: { latitude: p.lat, longitude: p.lng } },
+    }));
+  }
+  const modifiers: Record<string, boolean> = {};
+  if (opts?.avoidTolls) modifiers.avoidTolls = true;
+  if (opts?.avoidFerries) modifiers.avoidFerries = true;
+  if (Object.keys(modifiers).length) body.routeModifiers = modifiers;
+
+  const data = (await googleFetch(
+    "https://routes.googleapis.com/directions/v2:computeRoutes",
+    {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "X-Goog-Api-Key": key,
+        "X-Goog-FieldMask":
+          "routes.duration,routes.distanceMeters,routes.polyline.encodedPolyline,routes.legs.duration,routes.legs.distanceMeters,routes.legs.polyline.encodedPolyline,routes.legs.steps.polyline.encodedPolyline",
+      },
+      body: JSON.stringify(body),
+    },
+    20000,
+  )) as {
+    routes?: Array<{
+      duration?: string;
+      distanceMeters?: number;
+      polyline?: { encodedPolyline?: string };
+      legs?: Array<{
+        duration?: string;
+        distanceMeters?: number;
+        polyline?: { encodedPolyline?: string };
+        steps?: Array<{ polyline?: { encodedPolyline?: string } }>;
+      }>;
+    }>;
+  };
+
+  const route = data.routes?.[0];
+  if (!route) return null;
+  const geometry: [number, number][] = [];
+  for (const leg of route.legs || []) {
+    const steps = leg.steps || [];
+    if (steps.length) {
+      for (const step of steps) appendPoly(geometry, step.polyline?.encodedPolyline);
+    } else {
+      appendPoly(geometry, leg.polyline?.encodedPolyline);
+    }
+  }
+  if (geometry.length < 2) appendPoly(geometry, route.polyline?.encodedPolyline);
+  const legs = (route.legs || []).map((l) => ({
+    distanceM: l.distanceMeters || 0,
+    durationS: parseDurationS(l.duration),
+  }));
+  if (geometry.length < 2) return null;
+  return {
+    distanceM: route.distanceMeters || legs.reduce((s, l) => s + l.distanceM, 0),
+    durationS: parseDurationS(route.duration) || legs.reduce((s, l) => s + l.durationS, 0),
+    geometry,
+    legs: legs.length ? legs : [{ distanceM: route.distanceMeters || 0, durationS: parseDurationS(route.duration) }],
+  };
+}
+
+async function googleDirections(
+  pts: LatLng[],
+  opts?: { avoidTolls?: boolean; avoidFerries?: boolean },
+): Promise<GoogleRoute | null> {
+  const origin = pts[0];
+  const dest = pts[pts.length - 1];
+  const mid = pts.slice(1, -1);
+
+  const u = new URL("https://maps.googleapis.com/maps/api/directions/json");
+  u.searchParams.set("origin", loc(origin));
+  u.searchParams.set("destination", loc(dest));
+  u.searchParams.set("mode", "driving");
+  u.searchParams.set("region", "au");
+  u.searchParams.set("units", "metric");
+  u.searchParams.set("key", googleKey());
+  if (mid.length) u.searchParams.set("waypoints", mid.map(loc).join("|"));
+  const avoid = avoidParam(opts);
+  if (avoid) u.searchParams.set("avoid", avoid);
+
+  const data = (await googleFetch(u.toString(), {}, 20000)) as {
+    status?: string;
+    routes?: Array<{
+      overview_polyline?: { points?: string };
+      legs?: Array<{
+        distance?: { value?: number };
+        duration?: { value?: number };
+        steps?: Array<{ polyline?: { points?: string } }>;
+      }>;
+    }>;
+  };
+  if (data.status && data.status !== "OK") return null;
+  const route = data.routes?.[0];
+  if (!route) return null;
+  const geometry: [number, number][] = [];
+  for (const leg of route.legs || []) {
+    const steps = leg.steps || [];
+    if (steps.length) {
+      for (const step of steps) appendPoly(geometry, step.polyline?.points);
+    }
+  }
+  if (geometry.length < 2) appendPoly(geometry, route.overview_polyline?.points);
+  const legs = (route.legs || []).map((l) => ({
+    distanceM: l.distance?.value || 0,
+    durationS: l.duration?.value || 0,
+  }));
+  if (geometry.length < 2) return null;
+  return {
+    distanceM: legs.reduce((s, l) => s + l.distanceM, 0),
+    durationS: legs.reduce((s, l) => s + l.durationS, 0),
+    geometry,
+    legs,
+  };
+}
+
+async function oneGoogleRoute(
+  pts: LatLng[],
+  opts?: { avoidTolls?: boolean; avoidFerries?: boolean },
+): Promise<GoogleRoute | null> {
+  try {
+    const routed = await googleRoutesCompute(pts, opts);
+    if (routed && routed.geometry.length > pts.length) return routed;
+  } catch {
+    /* Directions API fallback */
+  }
+  try {
+    const directed = await googleDirections(pts, opts);
+    if (directed && directed.geometry.length > pts.length) return directed;
+  } catch {
+    /* caller falls back to OSRM */
+  }
+  return null;
 }
 
 /** Driving duration seconds between every pair. Null if the key can't do Distance Matrix. */
@@ -363,50 +537,31 @@ export async function googleDurationMatrix(
   return out;
 }
 
-/** Google Directions for an already-ordered list of stops. */
+/** Google driving route that follows the roads (Routes API, then Directions steps). */
 export async function googleDrivingRoute(
   pts: LatLng[],
   opts?: { avoidTolls?: boolean; avoidFerries?: boolean },
 ): Promise<GoogleRoute | null> {
   const key = googleKey();
   if (!key || pts.length < 2) return null;
+  if (pts.length <= GOOGLE_MAX_PTS) return oneGoogleRoute(pts, opts);
 
-  const origin = pts[0];
-  const dest = pts[pts.length - 1];
-  const mid = pts.slice(1, -1).slice(0, 23);
-
-  const u = new URL("https://maps.googleapis.com/maps/api/directions/json");
-  u.searchParams.set("origin", loc(origin));
-  u.searchParams.set("destination", loc(dest));
-  u.searchParams.set("mode", "driving");
-  u.searchParams.set("region", "au");
-  u.searchParams.set("units", "metric");
-  u.searchParams.set("key", key);
-  if (mid.length) u.searchParams.set("waypoints", mid.map(loc).join("|"));
-  const avoid = avoidParam(opts);
-  if (avoid) u.searchParams.set("avoid", avoid);
-
-  const data = (await googleFetch(u.toString(), {}, 20000)) as {
-    status?: string;
-    error_message?: string;
-    routes?: Array<{
-      overview_polyline?: { points?: string };
-      legs?: Array<{ distance?: { value?: number }; duration?: { value?: number } }>;
-    }>;
-  };
-  if (data.status && data.status !== "OK") return null;
-  const route = data.routes?.[0];
-  if (!route) return null;
-  const legs = (route.legs || []).map((l) => ({
-    distanceM: l.distance?.value || 0,
-    durationS: l.duration?.value || 0,
-  }));
-  return {
-    distanceM: legs.reduce((s, l) => s + l.distanceM, 0),
-    durationS: legs.reduce((s, l) => s + l.durationS, 0),
-    geometry: decodePolyline(route.overview_polyline?.points || ""),
-    legs,
-  };
+  const geometry: [number, number][] = [];
+  const legs: { distanceM: number; durationS: number }[] = [];
+  let distanceM = 0;
+  let durationS = 0;
+  for (let i = 0; i < pts.length - 1; i += GOOGLE_MAX_PTS - 1) {
+    const slice = pts.slice(i, Math.min(pts.length, i + GOOGLE_MAX_PTS));
+    const part = await oneGoogleRoute(slice, opts);
+    if (!part) return null;
+    if (geometry.length && part.geometry.length) part.geometry.shift();
+    geometry.push(...part.geometry);
+    legs.push(...part.legs);
+    distanceM += part.distanceM;
+    durationS += part.durationS;
+  }
+  if (geometry.length <= pts.length) return null;
+  return { distanceM, durationS, geometry, legs };
 }
 
 export async function googleReverse(lat: number, lon: number): Promise<SuggestHit | null> {

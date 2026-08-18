@@ -404,6 +404,15 @@ export async function drivingRoute(
   opts?: { avoidTolls?: boolean; avoidFerries?: boolean },
 ): Promise<RouteResult> {
   if (pts.length < 2) throw new Error("Need two stops");
+  try {
+    const { hasGoogleKey, googleDrivingRoute } = await import("./google.ts");
+    if (hasGoogleKey()) {
+      const g = await googleDrivingRoute(pts, opts);
+      if (g && g.geometry.length > pts.length) return g;
+    }
+  } catch {
+    /* OSRM fallback */
+  }
   const extra = excludeQs(opts);
   if (pts.length <= 80) return routeOnce(pts, extra);
   const geometry: [number, number][] = [];
@@ -433,17 +442,6 @@ export async function optimizedTrip(
   const order = await bestStopOrder(pts, opts);
   const ordered = order.map((i) => pts[i]).filter(Boolean);
   const path = opts.roundtrip && ordered.length ? [...ordered, ordered[0]] : ordered;
-
-  try {
-    const { hasGoogleKey, googleDrivingRoute } = await import("./google.ts");
-    if (hasGoogleKey()) {
-      const g = await googleDrivingRoute(path, opts);
-      if (g?.geometry?.length) return { ...g, order };
-    }
-  } catch {
-    /* OSRM fallback */
-  }
-
   const driven = await drivingRoute(path, opts);
   driven.order = order;
   return driven;

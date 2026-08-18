@@ -296,7 +296,7 @@ server.listen(PORT, "0.0.0.0", () => {
   if (!hasGoogleKey()) {
     console.warn("GOOGLE_MAPS_API_KEY not set — search uses OpenStreetMap (limited business names).");
   } else {
-    console.log("Google Places search enabled.");
+    console.log("Google Places + Directions/Routes enabled.");
   }
   if (!process.env.RENDER) {
     const ip = lanIPv4();
