@@ -460,14 +460,18 @@ input,textarea { outline:none; border:none; -webkit-appearance:none; background:
 
 /* Grip + delete */
 .grip-btn, .del-btn {
-  width:40px; height:56px; margin-top:4px;
+  width:44px; height:56px; margin-top:4px;
   display:flex; align-items:center; justify-content:center;
   color:var(--t3); border-radius:10px;
   transition:color .12s, background .12s;
 }
-.grip-btn { touch-action:none; cursor:grab; }
+.grip-btn { touch-action:none; cursor:grab; -webkit-user-select:none; user-select:none; }
 .grip-btn:active { cursor:grabbing; }
 .del-btn:active { color:var(--red); background:rgba(234,67,53,.07); }
+.stop-row.is-here .grip-btn { visibility:hidden; pointer-events:none; }
+.stop-list.reordering { overflow:hidden; touch-action:none; }
+
+/* ── Action row ──────────────────────────────────── */
 
 /* ── Action row ──────────────────────────────────── */
 .action-row {

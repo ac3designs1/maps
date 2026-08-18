@@ -65,6 +65,14 @@ function relTime(ts) {
 }
 function filledStops(trip = S.trip)   { return (trip?.stops||[]).filter(s=>(s.label||s.query||"").trim()); }
 function geocodedStops(trip = S.trip) { return (trip?.stops||[]).filter(s=>Number.isFinite(s.lat)&&Number.isFinite(s.lng)); }
+function isHereStop(s) {
+  if (!s) return false;
+  if (s.here) return true;
+  const q = String(s.query || "").trim().toLowerCase();
+  const l = String(s.label || "").trim().toLowerCase();
+  return q === "your location" || l === "your location";
+}
+function hereDisplay() { return "Your location"; }
 function titleFromStops(trip) {
   const f = filledStops(trip);
   if (f.length === 0) return trip.title && trip.title !== "Untitled trip" ? trip.title : "Untitled trip";
@@ -419,20 +427,17 @@ function applyHit(hit) {
   const stop = S.trip?.stops.find(s=>s.id===S.focusId);
   if (!stop) return;
   const isHere = !!hit.here;
-  const displayVal = isHere ? (S.hereLabel || "Your location") : (hit.name && hit.name !== hit.label ? hit.name : hit.label);
-  stop.query=displayVal; stop.label=hit.label; stop.lat=hit.lat; stop.lng=hit.lng; stop.here=isHere;
+  const displayVal = isHere ? hereDisplay() : (hit.name && hit.name !== hit.label ? hit.name : hit.label);
+  stop.query = displayVal;
+  stop.label = isHere ? hereDisplay() : hit.label;
+  stop.lat = hit.lat;
+  stop.lng = hit.lng;
+  stop.here = isHere;
   hideSuggest();
   const input = $("stopList").querySelector(`.stop-input[data-id="${stop.id}"]`);
-  if (input) { input.value=displayVal; input.classList.remove("unresolved"); }
-  // Current location is always stop 1
-  if (isHere) {
-    const i = S.trip.stops.findIndex(s=>s.id===stop.id);
-    if (i > 0) {
-      const [moved] = S.trip.stops.splice(i, 1);
-      S.trip.stops.unshift(moved);
-      syncStops(true);
-    }
-  }
+  if (input) { input.value = displayVal; input.classList.remove("unresolved"); }
+  if (isHere) pinHereFirst();
+  syncStops(true);
   updateRowMeta(); scheduleSave(); scheduleRoute(false); buzz();
   const idx = S.trip.stops.findIndex(s=>s.id===stop.id);
   const next = S.trip.stops.slice(idx+1).find(s=>!(s.label||s.query).trim());
@@ -449,7 +454,7 @@ $("suggestBox").addEventListener("click", async e => {
   if (!btn) return;
   if (btn.dataset.me) {
     if (!S.here) return toast("Location unavailable");
-    applyHit({label:S.hereLabel,lat:S.here.lat,lng:S.here.lng,here:true,name:"Your location"}); return;
+    applyHit({label:hereDisplay(),lat:S.here.lat,lng:S.here.lng,here:true,name:hereDisplay()}); return;
   }
   if (btn.dataset.pin) {
     const h=pinHit(btn.dataset.pin);
@@ -479,7 +484,7 @@ function stopLabel(i,n) {
 
 function makeRow(s,i,n) {
   const row = document.createElement("div");
-  row.className = `stop-row ${stopKind(i,n)}`.trim();
+  row.className = `stop-row ${stopKind(i,n)}${isHereStop(s)?" is-here":""}`.trim();
   row.dataset.id = s.id;
 
   row.innerHTML = `
@@ -489,19 +494,19 @@ function makeRow(s,i,n) {
     </div>
     <div class="stop-input-col">
       <input class="stop-input${s.query&&!Number.isFinite(s.lat)?" unresolved":""}"
-        data-id="${s.id}" value="${esc(s.query||s.label)}"
+        data-id="${s.id}" value="${esc(isHereStop(s)?hereDisplay():(s.query||s.label))}"
         placeholder="Address or business"
         autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false"
         enterkeyhint="search" inputmode="search"/>
       <div class="leg-meta"></div>
     </div>
-    <button class="grip-btn" data-act="grip" data-id="${s.id}" aria-label="Reorder" touch-action="none">
+    <div class="grip-btn" data-act="grip" data-id="${s.id}" aria-label="Reorder" role="button">
       <svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor" opacity=".35">
         <circle cx="8" cy="6" r="1.5"/><circle cx="16" cy="6" r="1.5"/>
         <circle cx="8" cy="12" r="1.5"/><circle cx="16" cy="12" r="1.5"/>
         <circle cx="8" cy="18" r="1.5"/><circle cx="16" cy="18" r="1.5"/>
       </svg>
-    </button>
+    </div>
     <button class="del-btn" data-act="del" data-id="${s.id}" aria-label="Remove">
       <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M18 6L6 18M6 6l12 12"/></svg>
     </button>`;
@@ -520,13 +525,13 @@ function updateRowMeta() {
     const row = domRows[i];
     const s   = stops[i];
     if (!s) continue;
-    row.className = `stop-row ${stopKind(i,n)}${row.classList.contains("dragging")?" dragging":""}`.trim();
+    row.className = `stop-row ${stopKind(i,n)}${row.classList.contains("dragging")?" dragging":""}${isHereStop(s)?" is-here":""}`.trim();
     const dot = row.querySelector(".stop-dot");
     if (dot) dot.textContent = stopLabel(i,n);
     const input = row.querySelector(".stop-input");
     if (input) {
       if (document.activeElement !== input) {
-        const val = s.query||s.label||"";
+        const val = isHereStop(s) ? hereDisplay() : (s.query||s.label||"");
         if (input.value !== val) input.value = val;
       }
       input.classList.toggle("unresolved", !!(input.value && !Number.isFinite(s.lat)));
@@ -704,40 +709,58 @@ $("stopList").addEventListener("click", e => {
 });
 
 $("stopList").addEventListener("pointerdown", e => {
-  const grip = e.target.closest(".grip-btn, .stop-dot");
+  const grip = e.target.closest(".grip-btn");
   if (!grip || !S.trip) return;
-  if (e.target.closest(".stop-input, .del-btn")) return;
-  const row  = grip.closest(".stop-row");
+  const row = grip.closest(".stop-row");
   if (!row) return;
+  const stop = S.trip.stops.find(s => s.id === row.dataset.id);
+  if (isHereStop(stop)) return;
+
   e.preventDefault();
+  e.stopPropagation();
   const list = $("stopList");
+  list.classList.add("reordering");
   row.classList.add("dragging");
-  try { grip.setPointerCapture(e.pointerId); } catch {}
+  const pointerId = e.pointerId;
+  try { row.setPointerCapture(pointerId); } catch {}
 
   const move = ev => {
+    if (ev.pointerId !== pointerId) return;
+    ev.preventDefault();
     const y = ev.clientY;
     const others = [...list.querySelectorAll(".stop-row")].filter(r => r !== row);
+    const hereRow = others.find(r => isHereStop(S.trip.stops.find(s => s.id === r.dataset.id)));
     let placed = false;
     for (const r of others) {
+      if (r === hereRow) continue;
       const b = r.getBoundingClientRect();
       if (y < b.top + b.height / 2) { list.insertBefore(row, r); placed = true; break; }
     }
     if (!placed) list.appendChild(row);
+    if (hereRow && list.firstElementChild !== hereRow) list.insertBefore(hereRow, list.firstElementChild);
   };
-  const up = () => {
-    grip.removeEventListener("pointermove", move);
-    grip.removeEventListener("pointerup", up);
-    grip.removeEventListener("pointercancel", up);
+  const up = ev => {
+    if (ev && ev.pointerId !== pointerId) return;
+    row.removeEventListener("pointermove", move);
+    row.removeEventListener("pointerup", up);
+    row.removeEventListener("pointercancel", up);
+    window.removeEventListener("pointermove", move);
+    window.removeEventListener("pointerup", up);
+    window.removeEventListener("pointercancel", up);
+    list.classList.remove("reordering");
     row.classList.remove("dragging");
     const byId = Object.fromEntries(S.trip.stops.map(s => [s.id, s]));
     S.trip.stops = [...list.querySelectorAll(".stop-row")].map(r => byId[r.dataset.id]).filter(Boolean);
-    if (pinHereFirst()) syncStops(true);
-    else updateRowMeta();
+    pinHereFirst();
+    syncStops(true);
     scheduleSave(); scheduleRoute(false); buzz();
   };
-  grip.addEventListener("pointermove", move);
-  grip.addEventListener("pointerup", up);
-  grip.addEventListener("pointercancel", up);
+  row.addEventListener("pointermove", move, { passive: false });
+  row.addEventListener("pointerup", up);
+  row.addEventListener("pointercancel", up);
+  window.addEventListener("pointermove", move, { passive: false });
+  window.addEventListener("pointerup", up);
+  window.addEventListener("pointercancel", up);
 }, { passive: false });
 
 /* ─── action bar ─── */
@@ -1230,18 +1253,24 @@ function applyLocationToFirstStop() {
   if (!S.here || !S.trip) return;
   const first = S.trip.stops[0];
   if (!first || (first.label || first.query || "").trim()) return;
-  const label = S.hereLabel && S.hereLabel !== "Your location" ? S.hereLabel : "Your location";
-  first.query = label; first.label = label; first.lat = S.here.lat; first.lng = S.here.lng; first.here = true;
+  first.query = hereDisplay();
+  first.label = hereDisplay();
+  first.lat = S.here.lat;
+  first.lng = S.here.lng;
+  first.here = true;
   const input = $("stopList").querySelector(`.stop-input[data-id="${first.id}"]`);
-  if (input) { input.value = label; input.classList.remove("unresolved"); }
+  if (input) { input.value = hereDisplay(); input.classList.remove("unresolved"); }
   updateRowMeta(); scheduleSave(); scheduleRoute(false);
 }
 
 function pinHereFirst() {
   if (!S.trip) return false;
-  const i = S.trip.stops.findIndex(s => s.here);
+  const i = S.trip.stops.findIndex(isHereStop);
   if (i <= 0) return false;
   const [moved] = S.trip.stops.splice(i, 1);
+  moved.here = true;
+  moved.query = hereDisplay();
+  moved.label = hereDisplay();
   S.trip.stops.unshift(moved);
   return true;
 }
@@ -1258,7 +1287,15 @@ function locate() {
         if(d.hit?.label) S.hereLabel=d.hit.label;
       } catch {}
     }
-    // On first GPS fix, auto-fill the first stop if it's empty
+    // Keep GPS coords fresh if stop 1 is Your location
+    const hereStop = S.trip?.stops.find(isHereStop);
+    if (hereStop) {
+      hereStop.lat = S.here.lat;
+      hereStop.lng = S.here.lng;
+      hereStop.query = hereDisplay();
+      hereStop.label = hereDisplay();
+      hereStop.here = true;
+    }
     if (firstFix) applyLocationToFirstStop();
   },()=>{},{enableHighAccuracy:true,maximumAge:15000,timeout:12000});
 }
