@@ -34,8 +34,7 @@ const S = {
 };
 
 /* ─── tiny helpers ─── */
-const $  = (id) => document.getElementById(id);
-const vv = () => window.visualViewport || null;
+const $ = (id) => document.getElementById(id);
 
 function uid() {
   return crypto.randomUUID?.() ?? `${Date.now()}-${Math.random().toString(16).slice(2)}`;
@@ -73,7 +72,10 @@ function titleFromStops(trip) {
 
 /* ─── api ─── */
 async function api(path, opts = {}) {
-  const ac = new AbortController();
+  // Support an external AbortController via opts.signal, plus our own timeout.
+  const ac  = new AbortController();
+  const ext = opts.signal;
+  if (ext) ext.addEventListener("abort", () => ac.abort(), { once: true });
   const timer = setTimeout(() => ac.abort(), opts.timeout || 22000);
   try {
     const res = await fetch(path, {
@@ -409,7 +411,8 @@ $("suggestBox").addEventListener("click", async e => {
     if (!h) return toast("Set this in More first");
     applyHit(h); return;
   }
-  const h = ($("suggestBox")._hits||[])[Number(btn.dataset.i)];
+  const idx = Number(btn.dataset.i);
+  const h = ($("suggestBox")._hits||[])[idx];
   if (h) applyHit(h);
 });
 
@@ -637,6 +640,7 @@ $("stopList").addEventListener("pointerdown", e => {
 
 /* ─── action bar ─── */
 $("btnAddStop").onclick = () => {
+  if (!S.trip) return;
   const stops = S.trip.stops;
   const destLike = !S.trip.roundtrip&&stops.length>=2;
   const neu = {id:uid(),query:"",label:"",lat:null,lng:null};
@@ -646,18 +650,20 @@ $("btnAddStop").onclick = () => {
   (destLike?inputs[inputs.length-2]:inputs[inputs.length-1])?.focus();
 };
 
-$("btnPaste").onclick = () => openModal("Paste addresses", pasteBody());
+$("btnPaste").onclick = () => { if (!S.trip) return; openModal("Paste addresses", pasteBody()); };
 $("btnReverse").onclick = () => {
+  if (!S.trip) return;
   S.trip.stops.reverse(); syncStops(true); scheduleSave(); scheduleRoute(false);
   toast("Start and finish swapped");
 };
 $("btnOptimise").onclick = () => {
+  if (!S.trip) return;
   if (geocodedStops().length<3) return toast("Add at least 3 places first");
   $("btnOptimise").classList.add("loading");
   scheduleRoute(true);
 };
-$("btnShare").onclick = () => shareTrip();
-$("btnMore").onclick   = () => openModal("More", moreBody());
+$("btnShare").onclick = () => { if (!S.trip) return; shareTrip(); };
+$("btnMore").onclick  = () => { if (!S.trip) return; openModal("More", moreBody()); };
 
 /* ─── map toggle ─── */
 $("btnMapToggle").onclick = () => {
@@ -687,7 +693,6 @@ $("btnLocate").onclick = () => {
 $("tripSearch").addEventListener("input",e=>{ S.filter=e.target.value; renderList(); });
 $("btnNew").onclick      = newTrip;
 $("btnEmptyNew").onclick = newTrip;
-$("continueCard").onclick = () => {};  /* will be overridden by renderContinue */
 $("tripList").addEventListener("click",e=>{
   const row=e.target.closest("[data-id]");
   if (row) openTrip(row.dataset.id);
@@ -722,6 +727,21 @@ function pasteBody() {
       <button id="pasteCancel" class="btn-secondary">Cancel</button>
     </div>
   </div>`;
+}
+
+function pinPickerBody(pinKey) {
+  const pts = filledStops();
+  if (!pts.length) return `<div class="modal-pad"><p class="modal-hint">Add stops to this trip first, then set one as ${pinKey === "home" ? "Home" : "Work"}.</p></div>`;
+  const label = pinKey === "home" ? "Home" : "Work";
+  const rows = pts.map((s, i) => {
+    const name = esc((s.label || s.query).split(",")[0]);
+    const addr = esc(s.label || s.query);
+    return `<button class="mrow" data-pin-save="${pinKey}" data-pin-i="${i}">
+      <span>${name}<br><span style="font-size:13px;color:var(--muted)">${addr}</span></span>
+    </button>`;
+  }).join("");
+  return `<div class="msec">${rows}</div>
+  <div class="modal-pad"><p class="modal-hint" style="margin:0">Tap a stop to save it as ${label}.</p></div>`;
 }
 
 function chk(on) {
@@ -771,6 +791,21 @@ function moreBody() {
 $("modalBody").addEventListener("click", e => {
   if (e.target.id==="pasteCancel") return closeModal();
   if (e.target.id==="pasteGo")     return pasteAddresses();
+
+  // Pin picker (Home / Work)
+  const pinSave = e.target.closest("[data-pin-save]");
+  if (pinSave) {
+    const key = pinSave.dataset.pinSave;
+    const i   = Number(pinSave.dataset.pinI);
+    const s   = filledStops()[i];
+    if (s) {
+      setPin(key, { label: s.label||s.query, lat: s.lat, lng: s.lng });
+      closeModal();
+      toast(`${key === "home" ? "Home" : "Work"} saved`);
+    }
+    return;
+  }
+
   const more = e.target.closest("[data-more]");
   if (!more) return;
   const act = more.dataset.more;
@@ -788,8 +823,12 @@ $("modalBody").addEventListener("click", e => {
       syncStops(true); scheduleSave(); scheduleRoute(false);
       toast("Stops cleared",()=>{ S.trip.stops=prev; syncStops(true); scheduleSave(); scheduleRoute(false); });
     },
-    home()    { const s=geocodedStops()[0]||filledStops()[0]; if(!s?.lat) return toast("Add a geocoded place first"); setPin("home",{label:s.label||s.query,lat:s.lat,lng:s.lng}); closeModal(); toast("Home saved"); },
-    work()    { const s=geocodedStops()[0]||filledStops()[0]; if(!s?.lat) return toast("Add a geocoded place first"); setPin("work",{label:s.label||s.query,lat:s.lat,lng:s.lng}); closeModal(); toast("Work saved"); },
+    home()    {
+      openModal("Set Home", pinPickerBody("home"));
+    },
+    work()    {
+      openModal("Set Work", pinPickerBody("work"));
+    },
     export()  { closeModal(); exportBackup(); },
     import()  { closeModal(); pickBackupFile(); },
     dup()     { const c=JSON.parse(JSON.stringify(S.trip)); c.id=uid(); c.title=`${c.title||"Trip"} copy`; c.createdAt=c.updatedAt=Date.now(); c.stops=(c.stops||[]).map(s=>({...s,id:uid()})); setRecords([c,...(S.records||[])]); closeModal(); openTrip(c.id); toast("Duplicated"); },
