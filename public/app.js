@@ -190,14 +190,14 @@ function setSnap(which) {
   const el = $("plannerSheet");
   el.classList.remove("snap-collapsed", "snap-mid", "snap-full");
   el.classList.add(`snap-${which}`);
-  setTimeout(() => state.map?.invalidateSize(), 200);
-  const previewBtn = $("btnPreview");
-  if (previewBtn) {
-    previewBtn.classList.toggle("active", which !== "full");
-    previewBtn.innerHTML =
-      which === "full"
-        ? `<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 9h18M9 9v12"/></svg> Map`
-        : `<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 9h18M9 9v12"/></svg> List`;
+  setTimeout(() => state.map?.invalidateSize(), 240);
+  const mb = $("btnMap");
+  if (mb) {
+    const showingMap = which !== "full";
+    mb.classList.toggle("active", showingMap);
+    mb.innerHTML = showingMap
+      ? `<svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 3H5a2 2 0 0 0-2 2v4m6-6h10a2 2 0 0 1 2 2v4M9 3v18m0 0h10a2 2 0 0 0 2-2V9M9 21H5a2 2 0 0 1-2-2V9m0 0h18"/></svg> List`
+      : `<svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 6l7-3 8 3 7-3v15l-7 3-8-3-7 3V6z"/><path d="M8 3v15M16 6v15"/></svg> Map`;
   }
 }
 
@@ -329,7 +329,7 @@ function renderList() {
       const stats = t.durationS ? fmtDur(t.durationS) : relTime(t.updatedAt);
       const star = t.starred ? '<span class="star">★</span> ' : "";
       return `<button type="button" class="trip-row" data-id="${t.id}">
-        <span class="pin">${t.stopCount || 0}</span>
+        <span class="trip-pin">${t.stopCount || 0}</span>
         <span>
           <strong>${star}${esc(t.title || "Untitled trip")}</strong>
           <span class="preview">${esc(t.preview || "No stops yet")}</span>
@@ -513,14 +513,14 @@ function makeRow(s, i, n) {
   row.innerHTML = `
     <div class="rail"><span class="num">${i + 1}</span></div>
     <div class="stop-main">
-      <input data-id="${s.id}" value="${esc(s.query || s.label)}" placeholder="${placeholder(i, n)}" autocomplete="off" autocorrect="on" spellcheck="true" />
+      <input data-id="${s.id}" value="${esc(s.query || s.label)}" placeholder="${placeholder(i, n)}" autocomplete="off" autocorrect="off" spellcheck="false" enterkeyhint="search" />
       <span class="leg"></span>
     </div>
     <button type="button" class="grip" data-act="grip" data-id="${s.id}" aria-label="Reorder">
       <svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor"><circle cx="8" cy="7" r="1.4"/><circle cx="16" cy="7" r="1.4"/><circle cx="8" cy="12" r="1.4"/><circle cx="16" cy="12" r="1.4"/><circle cx="8" cy="17" r="1.4"/><circle cx="16" cy="17" r="1.4"/></svg>
     </button>
-    <button type="button" class="icon-tiny" data-act="del" data-id="${s.id}" aria-label="Remove">
-      <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 6l12 12M18 6L6 18"/></svg>
+    <button type="button" class="del-btn" data-act="del" data-id="${s.id}" aria-label="Remove">
+      <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 6l12 12M18 6L6 18"/></svg>
     </button>`;
   bindStopInput(row.querySelector("input"));
   return row;
@@ -711,7 +711,7 @@ function showHereSuggest() {
 }
 
 $("stopList").addEventListener("click", (e) => {
-  const btn = e.target.closest("[data-act=del]");
+  const btn = e.target.closest(".del-btn");
   if (!btn || !state.trip) return;
   const i = state.trip.stops.findIndex((s) => s.id === btn.dataset.id);
   if (i < 0) return;
@@ -816,20 +816,16 @@ $("btnOptimize").onclick = () => {
   scheduleRoute(true);
 };
 $("btnShare").onclick = () => shareTrip();
-$("btnMore").onclick = () => openModal("Trip", moreBody());
-
-$("btnPreview").onclick = () => {
-  const isEditing = state.snap === "full";
-  if (isEditing) {
+$("btnMore").onclick = () => openModal("More", moreBody());
+$("btnMap").onclick = () => {
+  if (state.snap === "full") {
     document.activeElement?.blur();
     hideSuggest();
     setSnap("mid");
     drawMap(true);
-    $("btnPreview").classList.add("active");
   } else {
     setSnap("full");
-    $("btnPreview").classList.remove("active");
-    setTimeout(() => $("stopList").querySelector("input")?.focus(), 180);
+    setTimeout(() => $("stopList").querySelector("input")?.focus(), 200);
   }
 };
 $("btnBack").onclick = () => {
@@ -930,27 +926,48 @@ function pasteBody() {
     </div>`;
 }
 
+function chk(on) {
+  return `<span class="btn-check${on ? " on" : ""}"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="#fff" stroke-width="2.5"><path d="M5 12l5 5L19 7"/></svg></span>`;
+}
+
 function moreBody() {
   const t = state.trip;
   const pins = readPins();
-  return `<label class="field">Name
-      <input id="renameTitle" value="${esc(t.title || "")}" />
-    </label>
-    <button type="button" class="sheet-btn" data-more="star">${t.starred ? "★ " : ""}Star trip</button>
-    <button type="button" class="sheet-btn" data-more="round">${t.roundtrip ? "✓ " : ""}Round trip</button>
-    <button type="button" class="sheet-btn" data-more="ends">${t.keepEnds ? "✓ " : ""}Keep start &amp; end when optimizing</button>
-    <button type="button" class="sheet-btn" data-more="tolls">${t.avoidTolls ? "✓ " : ""}Avoid tolls</button>
-    <button type="button" class="sheet-btn" data-more="ferries">${t.avoidFerries ? "✓ " : ""}Avoid ferries</button>
-    <button type="button" class="sheet-btn" data-more="refresh">Refresh route</button>
-    <button type="button" class="sheet-btn" data-more="clear">Clear all stops</button>
-    <button type="button" class="sheet-btn" data-more="home">Set Home — ${esc((pins.home?.label || "not set").split(",")[0])}</button>
-    <button type="button" class="sheet-btn" data-more="work">Set Work — ${esc((pins.work?.label || "not set").split(",")[0])}</button>
-    <button type="button" class="sheet-btn" data-more="dup">Duplicate trip</button>
-    <button type="button" class="sheet-btn" data-more="export">Export backup</button>
-    <button type="button" class="sheet-btn" data-more="import">Import backup</button>
-    <button type="button" class="sheet-btn" data-more="waze">Open in Waze</button>
-    <button type="button" class="sheet-btn" data-more="google">Open in Google Maps</button>
-    <button type="button" class="sheet-btn bad" data-more="del">Delete trip</button>`;
+  return `
+  <label class="field">Trip name<input id="renameTitle" value="${esc(t.title || "")}" /></label>
+
+  <div class="sheet-section">
+    <button class="sheet-btn" data-more="star">${t.starred ? "★ Starred" : "Star this trip"}${chk(t.starred)}</button>
+    <button class="sheet-btn" data-more="round">Round trip${chk(t.roundtrip)}</button>
+    <button class="sheet-btn" data-more="ends">Keep start &amp; end when optimising${chk(t.keepEnds)}</button>
+  </div>
+
+  <div class="sheet-section">
+    <button class="sheet-btn" data-more="tolls">Avoid tolls${chk(t.avoidTolls)}</button>
+    <button class="sheet-btn" data-more="ferries">Avoid ferries${chk(t.avoidFerries)}</button>
+    <button class="sheet-btn" data-more="refresh">Refresh route</button>
+  </div>
+
+  <div class="sheet-section">
+    <button class="sheet-btn" data-more="home">Set Home <span style="color:var(--muted);font-size:14px">${esc((pins.home?.label || "not set").split(",")[0])}</span></button>
+    <button class="sheet-btn" data-more="work">Set Work <span style="color:var(--muted);font-size:14px">${esc((pins.work?.label || "not set").split(",")[0])}</span></button>
+  </div>
+
+  <div class="sheet-section">
+    <button class="sheet-btn" data-more="waze">Open in Waze</button>
+    <button class="sheet-btn" data-more="google">Open in Google Maps</button>
+  </div>
+
+  <div class="sheet-section">
+    <button class="sheet-btn" data-more="dup">Duplicate trip</button>
+    <button class="sheet-btn" data-more="clear">Clear all stops</button>
+    <button class="sheet-btn" data-more="export">Export backup</button>
+    <button class="sheet-btn" data-more="import">Import backup</button>
+  </div>
+
+  <div class="sheet-section">
+    <button class="sheet-btn bad" data-more="del">Delete trip</button>
+  </div>`;
 }
 
 function shareTrip() {
@@ -1359,32 +1376,29 @@ function openExternal(kind) {
 (function sheetDrag() {
   const grab = $("sheetGrab");
   const sheet = $("plannerSheet");
-  grab.addEventListener(
-    "pointerdown",
-    (e) => {
-      const startY = e.clientY;
-      const startH = sheet.getBoundingClientRect().height;
-      sheet.style.transition = "none";
-      const move = (ev) => {
-        const next = Math.min(window.innerHeight - 64, Math.max(160, startH + (startY - ev.clientY)));
-        sheet.style.height = `${next}px`;
-      };
-      const up = (ev) => {
-        document.removeEventListener("pointermove", move);
-        document.removeEventListener("pointerup", up);
-        sheet.style.transition = "";
-        sheet.style.height = "";
-        const h = startH + (startY - ev.clientY);
-        const max = window.innerHeight;
-        if (h < max * 0.32) setSnap("collapsed");
-        else if (h > max * 0.7) setSnap("full");
-        else setSnap("mid");
-      };
-      document.addEventListener("pointermove", move);
-      document.addEventListener("pointerup", up);
-    },
-    { passive: true },
-  );
+  let startY, startH;
+  grab.addEventListener("pointerdown", (e) => {
+    startY = e.clientY;
+    startH = sheet.getBoundingClientRect().height;
+    sheet.classList.add("dragging-sheet");
+    grab.setPointerCapture(e.pointerId);
+  }, { passive: true });
+  grab.addEventListener("pointermove", (e) => {
+    if (startY == null) return;
+    const next = Math.min(window.innerHeight - 60, Math.max(160, startH + (startY - e.clientY)));
+    sheet.style.height = `${next}px`;
+  }, { passive: true });
+  grab.addEventListener("pointerup", (e) => {
+    if (startY == null) return;
+    const h = startH + (startY - e.clientY);
+    sheet.style.height = "";
+    sheet.classList.remove("dragging-sheet");
+    const max = window.innerHeight;
+    if (h < max * 0.28) setSnap("collapsed");
+    else if (h > max * 0.68) setSnap("full");
+    else setSnap("mid");
+    startY = null;
+  }, { passive: true });
 })();
 
 document.addEventListener("click", (e) => {
