@@ -44,19 +44,31 @@ function fmtNominatim(item: {
   );
 }
 
-async function getJson(url: string, ms = 8000) {
-  const ac = new AbortController();
-  const t = setTimeout(() => ac.abort(), ms);
-  try {
-    const res = await fetch(url, {
-      signal: ac.signal,
-      headers: { Accept: "application/json", "User-Agent": UA },
-    });
-    if (!res.ok) throw new Error(`Upstream ${res.status}`);
-    return await res.json();
-  } finally {
-    clearTimeout(t);
+async function getJson(url: string, ms = 10000, tries = 2) {
+  let last = new Error("Network error");
+  for (let i = 0; i < tries; i++) {
+    const ac = new AbortController();
+    const t = setTimeout(() => ac.abort(), ms);
+    try {
+      const res = await fetch(url, {
+        signal: ac.signal,
+        headers: { Accept: "application/json", "User-Agent": UA },
+      });
+      if (res.status === 429 || res.status >= 500) {
+        last = new Error("Maps is busy. Try again.");
+        await new Promise((r) => setTimeout(r, 350 * (i + 1)));
+        continue;
+      }
+      if (!res.ok) throw new Error("Couldn't load that place");
+      return await res.json();
+    } catch (err) {
+      last = err instanceof Error ? err : new Error(String(err));
+      if (i + 1 < tries) await new Promise((r) => setTimeout(r, 250));
+    } finally {
+      clearTimeout(t);
+    }
   }
+  throw last;
 }
 
 function dedupe(hits: SuggestHit[]) {

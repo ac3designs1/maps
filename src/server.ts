@@ -168,14 +168,23 @@ const server = http.createServer(async (req, res) => {
       const pts = (body.points || []).filter(
         (p: { lat?: number; lng?: number }) => Number.isFinite(p.lat) && Number.isFinite(p.lng),
       );
-      if (pts.length < 2) return send(res, 400, { error: "Need at least two places" });
+      if (pts.length < 2) return send(res, 400, { error: "Add at least two places" });
       const roundtrip = !!body.roundtrip;
       const optimize = !!body.optimize;
       const keepEnds = body.keepEnds !== false;
-      const result = optimize
-        ? await optimizedTrip(pts, { roundtrip, keepEnds })
-        : await drivingRoute(roundtrip ? [...pts, pts[0]] : pts);
-      return send(res, 200, result);
+      try {
+        const result = optimize
+          ? await optimizedTrip(pts, { roundtrip, keepEnds })
+          : await drivingRoute(roundtrip ? [...pts, pts[0]] : pts);
+        return send(res, 200, result);
+      } catch (err) {
+        const raw = err instanceof Error ? err.message : String(err);
+        return send(res, 502, {
+          error: /busy|abort|timeout|fetch|ECONN|Upstream/i.test(raw)
+            ? "Couldn't build the drive. Try again."
+            : raw,
+        });
+      }
     }
 
     if (u.pathname === "/api/trips" && req.method === "GET") {
