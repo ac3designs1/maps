@@ -375,14 +375,55 @@ function saveTrip() {
 function hideSuggest() {
   $("suggestPop").classList.add("hidden");
   $("suggestPop").innerHTML = "";
+  $("tripScreen").classList.remove("suggest-open");
+}
+
+function activeStopInput() {
+  if (state.focusId) return $("stopList").querySelector(`input[data-id="${state.focusId}"]`);
+  const active = document.activeElement;
+  return active?.matches?.(".stop-row input") ? active : null;
+}
+
+function scrollStopForSuggest(input) {
+  const list = $("stopList");
+  const row = input?.closest(".stop-row");
+  if (!list || !row) return;
+  const listRect = list.getBoundingClientRect();
+  const rowRect = row.getBoundingClientRect();
+  const target = rowRect.top - listRect.top + list.scrollTop - 6;
+  list.scrollTo({ top: Math.max(0, target), behavior: "smooth" });
 }
 
 function placeSuggest() {
-  const sheet = $("plannerSheet");
   const pop = $("suggestPop");
-  const top = sheet.getBoundingClientRect().top;
-  pop.style.top = Math.max(58, Math.min(top - 8, window.innerHeight * 0.42)) - Math.min(240, window.innerHeight * 0.36) + "px";
-  if (top < 170) pop.style.top = `calc(54px + var(--sat))`;
+  const input = activeStopInput();
+  if (!input || pop.classList.contains("hidden")) return;
+
+  scrollStopForSuggest(input);
+
+  requestAnimationFrame(() => {
+    const inputRect = input.getBoundingClientRect();
+    const popH = Math.min(280, Math.max(pop.offsetHeight || 160, 120));
+    const gap = 6;
+    const kb = Number.parseInt(getComputedStyle(document.documentElement).getPropertyValue("--kb")) || 0;
+    const sat = Number.parseInt(getComputedStyle(document.documentElement).getPropertyValue("--sat")) || 0;
+    const safeBottom = window.innerHeight - kb - 12;
+    const spaceBelow = safeBottom - inputRect.bottom - gap;
+    const spaceAbove = inputRect.top - gap - (54 + sat);
+
+    let top;
+    let maxH;
+    if (spaceBelow >= 100 || spaceBelow >= spaceAbove) {
+      top = inputRect.bottom + gap;
+      maxH = Math.min(280, Math.max(100, spaceBelow));
+    } else {
+      maxH = Math.min(280, Math.max(100, spaceAbove));
+      top = inputRect.top - maxH - gap;
+    }
+
+    pop.style.top = `${Math.max(8, top)}px`;
+    pop.style.maxHeight = `${maxH}px`;
+  });
 }
 
 async function lookup(q) {
@@ -548,6 +589,7 @@ function bindStopInput(input) {
   input.addEventListener("focus", () => {
     state.focusId = id;
     setSnap("full");
+    requestAnimationFrame(() => scrollStopForSuggest(input));
     if (state.here && !input.value) showHereSuggest();
   });
   input.addEventListener("input", () => {
@@ -580,6 +622,7 @@ function bindStopInput(input) {
           .join("");
         $("suggestPop")._hits = hits;
         $("suggestPop").classList.remove("hidden");
+        $("tripScreen").classList.add("suggest-open");
         placeSuggest();
       } catch (err) {
         if (!err.cancelled) hideSuggest();
@@ -629,6 +672,7 @@ function showHereSuggest() {
   if (!rows.length) return;
   $("suggestPop").innerHTML = rows.join("");
   $("suggestPop").classList.remove("hidden");
+  $("tripScreen").classList.add("suggest-open");
   placeSuggest();
 }
 
@@ -1304,6 +1348,7 @@ if (window.visualViewport) {
     const vv = window.visualViewport;
     const kb = Math.max(0, window.innerHeight - vv.height - vv.offsetTop);
     document.documentElement.style.setProperty("--kb", `${kb > 48 ? kb : 0}px`);
+    if (!$("suggestPop").classList.contains("hidden")) placeSuggest();
   };
   window.visualViewport.addEventListener("resize", pinKb);
   window.visualViewport.addEventListener("scroll", pinKb);

@@ -312,9 +312,14 @@ button { cursor: pointer; }
 .star { color: #f4b400; }
 
 .suggest-pop {
-  position: absolute; left: 10px; right: 10px; z-index: 12;
+  position: fixed; left: 10px; right: 10px; z-index: 20;
   background: #fff; border-radius: 14px; box-shadow: var(--shadow);
-  max-height: 42vh; overflow: auto;
+  overflow: auto;
+  -webkit-overflow-scrolling: touch;
+}
+.suggest-open .stop-main input:focus {
+  background: rgba(26,115,232,.06);
+  border-radius: 8px 8px 0 0;
 }
 .suggest-pop button {
   display: grid; grid-template-columns: 28px 1fr; gap: 8px; align-items: start;
