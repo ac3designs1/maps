@@ -928,10 +928,12 @@ async function routeNow(optimize) {
     })});
     if (seq!==S.routeSeq) return;
     if (optimize&&Array.isArray(data.order)&&data.order.length===pts.length) {
-      const ids=pts.map(p=>p.id);
-      const byId=Object.fromEntries(S.trip.stops.map(s=>[s.id,s]));
-      const rest=S.trip.stops.filter(s=>!ids.includes(s.id));
-      S.trip.stops=[...data.order.map(i=>byId[ids[i]]),...rest].filter(Boolean);
+      // Reorder only the geocoded stops; leave empty/unresolved stops in place.
+      const geocodedIds = new Set(pts.map(p=>p.id));
+      const reordered   = data.order.map(i=>pts[i]).filter(Boolean);
+      // Walk the original stop list; replace each geocoded slot with the next reordered stop.
+      let ri = 0;
+      S.trip.stops = S.trip.stops.map(s => geocodedIds.has(s.id) ? reordered[ri++] : s).filter(Boolean);
       syncStops(true); toast("Reordered for a shorter drive");
     }
     S.route=data; S.trip.distanceM=data.distanceM; S.trip.durationS=data.durationS;
