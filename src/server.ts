@@ -148,7 +148,7 @@ const server = http.createServer(async (req, res) => {
       const chunk = lines.slice(0, 200);
       const results: { query: string; hit: Awaited<ReturnType<typeof geocode>> }[] = new Array(chunk.length);
       let i = 0;
-      const workers = Array.from({ length: Math.min(4, chunk.length) }, async () => {
+      const workers = Array.from({ length: Math.min(2, chunk.length) }, async () => {
         while (i < chunk.length) {
           const idx = i++;
           const line = chunk[idx];

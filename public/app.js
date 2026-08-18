@@ -336,9 +336,9 @@ function stopKind(i, n) {
 }
 
 function placeholder(i, n) {
-  if (i === 0) return "Choose start";
-  if (i === n - 1 && !state.trip.roundtrip) return "Choose destination";
-  return "Add stop";
+  if (i === 0) return "Address or business";
+  if (i === n - 1 && !state.trip.roundtrip) return "Address or business";
+  return "Address or business";
 }
 
 function makeRow(s, i, n) {
@@ -481,12 +481,12 @@ function bindStopInput(input) {
         if (state.focusId !== id) return;
         if (!hits.length) return hideSuggest();
         $("suggestPop").innerHTML = hits
-          .map(
-            (h, i) =>
-              `<button type="button" data-i="${i}"><span class="ico"><svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor"><path d="M12 2a7 7 0 0 0-7 7c0 5 7 13 7 13s7-8 7-13a7 7 0 0 0-7-7zm0 9.5A2.5 2.5 0 1 1 12 6a2.5 2.5 0 0 1 0 5.5z"/></svg></span><span><strong>${esc(
-                h.label.split(",")[0],
-              )}</strong><small>${esc(h.label)}</small></span></button>`,
-          )
+          .map((h, i) => {
+            const title = esc(h.name || h.label.split(",")[0]);
+            const sub = esc(h.label);
+            const tag = h.kind === "business" ? "Business · Australia" : "Australia";
+            return `<button type="button" data-i="${i}"><span class="ico"><svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor"><path d="M12 2a7 7 0 0 0-7 7c0 5 7 13 7 13s7-8 7-13a7 7 0 0 0-7-7zm0 9.5A2.5 2.5 0 1 1 12 6a2.5 2.5 0 0 1 0 5.5z"/></svg></span><span><strong>${title}</strong><small>${sub}<br>${tag}</small></span></button>`;
+          })
           .join("");
         $("suggestPop")._hits = hits;
         $("suggestPop").classList.remove("hidden");
@@ -663,8 +663,8 @@ function closeModal() {
 }
 
 function pasteBody() {
-  return `<p class="hint">One address per line. We’ll match each one and drop it on the route.</p>
-    <textarea id="pasteBox" placeholder="12 Queen St, Brisbane&#10;200 George St, Sydney&#10;Federation Square, Melbourne"></textarea>
+  return `    <p class="hint">One per line — street addresses or company names in Australia. Woolworths, Bunnings, a job site, whatever.</p>
+    <textarea id="pasteBox" placeholder="Bunnings Warehouse, Geebung&#10;12 Queen St, Brisbane&#10;Woolworths Townsville"></textarea>
     <div style="display:flex;gap:8px;margin-top:14px">
       <button type="button" class="btn primary" id="pasteGo" style="flex:1">Add them</button>
       <button type="button" class="chip" id="pasteCancel">Cancel</button>

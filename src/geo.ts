@@ -5,22 +5,68 @@ export type SuggestHit = {
   lat: number;
   lng: number;
   kind?: string;
+  name?: string;
 };
+
+const AU = {
+  minLng: 112.5,
+  maxLng: 154.1,
+  minLat: -44.1,
+  maxLat: -9.5,
+  biasLat: -33.8688,
+  biasLng: 151.2093,
+};
+
+const BIZ_KEYS = new Set([
+  "shop",
+  "amenity",
+  "office",
+  "tourism",
+  "craft",
+  "leisure",
+  "healthcare",
+  "club",
+  "brand",
+  "aeroway",
+]);
+
+function inAustralia(lat: number, lng: number) {
+  return lat >= AU.minLat && lat <= AU.maxLat && lng >= AU.minLng && lng <= AU.maxLng;
+}
+
+function biasPoint(lat?: number, lon?: number) {
+  if (Number.isFinite(lat) && Number.isFinite(lon) && inAustralia(lat as number, lon as number)) {
+    return { lat: lat as number, lon: lon as number };
+  }
+  return { lat: AU.biasLat, lon: AU.biasLng };
+}
+
+function isAusCountry(props: Record<string, unknown>) {
+  const c = `${props.country || ""} ${props.countrycode || ""}`.toLowerCase();
+  if (!c.trim()) return true;
+  return /\baustralia\b|\bau\b|\baus\b/.test(c);
+}
 
 function uniqLabel(parts: unknown[]) {
   return [...new Set(parts.map((x) => String(x || "").trim()).filter(Boolean))].join(", ");
 }
 
 function fmtPhoton(props: Record<string, unknown>, fallback: string) {
+  const key = String(props.osm_key || "");
+  const biz = BIZ_KEYS.has(key);
   const street = [props.housenumber, props.street].filter(Boolean).join(" ");
+  const name = String(props.name || "");
+  const suburb = props.city || props.town || props.village || props.suburb || props.locality;
+  if (biz && name) {
+    return uniqLabel([name, street, suburb, props.state, props.postcode]) || fallback;
+  }
   return (
     uniqLabel([
-      street || props.name,
-      street && props.name && props.name !== street ? props.name : "",
-      props.city || props.town || props.village || props.suburb || props.locality,
+      street || name,
+      street && name && name !== street ? name : "",
+      suburb,
       props.state,
       props.postcode,
-      props.country,
     ]) || fallback
   );
 }
@@ -29,19 +75,18 @@ function fmtNominatim(item: {
   display_name?: string;
   address?: Record<string, string>;
   name?: string;
+  class?: string;
+  type?: string;
 }) {
   const a = item.address || {};
   const street = [a.house_number, a.road].filter(Boolean).join(" ");
-  return (
-    uniqLabel([
-      street || item.name || a.amenity || a.shop,
-      a.suburb || a.neighbourhood,
-      a.city || a.town || a.village || a.municipality,
-      a.state,
-      a.postcode,
-      a.country,
-    ]) || item.display_name || ""
-  );
+  const suburb = a.suburb || a.neighbourhood || a.hamlet;
+  const city = a.city || a.town || a.village || a.municipality;
+  const biz = item.name || a.shop || a.amenity || a.office || a.tourism;
+  if (biz && (BIZ_KEYS.has(item.class || "") || biz !== street)) {
+    return uniqLabel([biz, street, suburb, city, a.state, a.postcode]) || item.display_name || "";
+  }
+  return uniqLabel([street || biz, suburb, city, a.state, a.postcode]) || item.display_name || "";
 }
 
 async function getJson(url: string, ms = 10000, tries = 2) {
@@ -84,15 +129,15 @@ function dedupe(hits: SuggestHit[]) {
 }
 
 async function photonSuggest(q: string, lat?: number, lon?: number): Promise<SuggestHit[]> {
+  const bias = biasPoint(lat, lon);
   const u = new URL("https://photon.komoot.io/api/");
   u.searchParams.set("q", q);
-  u.searchParams.set("limit", "8");
+  u.searchParams.set("limit", "12");
   u.searchParams.set("lang", "en");
-  u.searchParams.set("location_bias_scale", "0.1");
-  if (Number.isFinite(lat) && Number.isFinite(lon)) {
-    u.searchParams.set("lat", String(lat));
-    u.searchParams.set("lon", String(lon));
-  }
+  u.searchParams.set("location_bias_scale", "0.2");
+  u.searchParams.set("lat", String(bias.lat));
+  u.searchParams.set("lon", String(bias.lon));
+  u.searchParams.set("bbox", `${AU.minLng},${AU.minLat},${AU.maxLng},${AU.maxLat}`);
   const data = (await getJson(u.toString())) as {
     features?: Array<{
       geometry?: { coordinates?: number[] };
@@ -102,31 +147,110 @@ async function photonSuggest(q: string, lat?: number, lon?: number): Promise<Sug
   const out: SuggestHit[] = [];
   for (const f of data.features || []) {
     const [lng, latN] = f.geometry?.coordinates || [];
-    if (!Number.isFinite(latN) || !Number.isFinite(lng)) continue;
+    if (!Number.isFinite(latN) || !Number.isFinite(lng) || !inAustralia(latN, lng)) continue;
     const props = f.properties || {};
+    if (!isAusCountry(props)) continue;
+    const key = String(props.osm_key || "");
     out.push({
       label: fmtPhoton(props, q),
       lat: latN,
       lng,
-      kind: String(props.osm_value || props.type || ""),
+      kind: BIZ_KEYS.has(key) ? "business" : "address",
+      name: String(props.name || ""),
     });
   }
   return out;
 }
 
+async function nominatimSuggest(q: string, lat?: number, lon?: number): Promise<SuggestHit[]> {
+  const bias = biasPoint(lat, lon);
+  const u = new URL("https://nominatim.openstreetmap.org/search");
+  u.searchParams.set("q", q);
+  u.searchParams.set("format", "jsonv2");
+  u.searchParams.set("addressdetails", "1");
+  u.searchParams.set("countrycodes", "au");
+  u.searchParams.set("limit", "8");
+  u.searchParams.set("dedupe", "1");
+  u.searchParams.set("viewbox", `${AU.minLng},${AU.maxLat},${AU.maxLng},${AU.minLat}`);
+  u.searchParams.set("bounded", "0");
+  u.searchParams.set("lat", String(bias.lat));
+  u.searchParams.set("lon", String(bias.lon));
+  const data = (await getJson(u.toString(), 9000)) as Array<{
+    lat?: string;
+    lon?: string;
+    display_name?: string;
+    name?: string;
+    class?: string;
+    type?: string;
+    address?: Record<string, string>;
+  }>;
+  const out: SuggestHit[] = [];
+  for (const item of data || []) {
+    const latN = Number(item.lat);
+    const lng = Number(item.lon);
+    if (!Number.isFinite(latN) || !Number.isFinite(lng) || !inAustralia(latN, lng)) continue;
+    const cc = `${item.address?.country || ""} ${item.address?.country_code || ""}`.toLowerCase();
+    if (cc && !/\baustralia\b|\bau\b/.test(cc)) continue;
+    const biz = BIZ_KEYS.has(item.class || "");
+    out.push({
+      label: fmtNominatim(item) || q,
+      lat: latN,
+      lng,
+      kind: biz ? "business" : "address",
+      name: item.name || "",
+    });
+  }
+  return out;
+}
+
+function rankHits(query: string, hits: SuggestHit[], lat?: number, lon?: number) {
+  const q = query.toLowerCase();
+  const bias = biasPoint(lat, lon);
+  const scored = hits.map((h) => {
+    const name = (h.name || h.label).toLowerCase();
+    let score = 0;
+    if (name === q) score += 120;
+    else if (name.startsWith(q)) score += 80;
+    else if (name.includes(q)) score += 40;
+    if (h.kind === "business") score += 30;
+    const dlat = h.lat - bias.lat;
+    const dlng = h.lng - bias.lon;
+    score -= Math.sqrt(dlat * dlat + dlng * dlng) * 8;
+    return { h, score };
+  });
+  scored.sort((a, b) => b.score - a.score);
+  return scored.map((s) => s.h);
+}
+
 export async function suggest(q: string, lat?: number, lon?: number): Promise<SuggestHit[]> {
   const query = q.trim();
   if (query.length < 2) return [];
-  try {
-    return dedupe(await photonSuggest(query, lat, lon)).slice(0, 8);
-  } catch {
-    return [];
-  }
+  const [photon, nomi] = await Promise.allSettled([
+    photonSuggest(query, lat, lon),
+    nominatimSuggest(query, lat, lon),
+  ]);
+  const merged = [
+    ...(photon.status === "fulfilled" ? photon.value : []),
+    ...(nomi.status === "fulfilled" ? nomi.value : []),
+  ].filter((h) => inAustralia(h.lat, h.lng));
+  return rankHits(query, dedupe(merged), lat, lon).slice(0, 8);
 }
 
 export async function geocode(q: string, lat?: number, lon?: number): Promise<SuggestHit | null> {
-  const hits = await suggest(q, lat, lon);
-  return hits[0] || null;
+  const query = q.trim();
+  if (query.length < 2) return null;
+  try {
+    const photon = (await photonSuggest(query, lat, lon)).filter((h) => inAustralia(h.lat, h.lng));
+    if (photon[0]) return rankHits(query, photon, lat, lon)[0];
+  } catch {
+    /* fall through */
+  }
+  try {
+    const nomi = (await nominatimSuggest(query, lat, lon)).filter((h) => inAustralia(h.lat, h.lng));
+    return rankHits(query, nomi, lat, lon)[0] || null;
+  } catch {
+    return null;
+  }
 }
 
 export async function reverse(lat: number, lon: number): Promise<SuggestHit | null> {
