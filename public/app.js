@@ -25,6 +25,7 @@ const S = {
   routing: false,
   map: null,
   line: null,
+  lineOutline: null,
   markers: [],
   hereDot: null,
   snap: "mid",
@@ -202,7 +203,9 @@ function showTrip() {
   $("listScreen").classList.add("hidden");
   $("tripScreen").classList.remove("hidden");
   setSnap(S.snap||"mid");
-  requestAnimationFrame(() => { S.map?.invalidateSize(); drawMap(true); });
+  // Let CSS transition settle then fix map size
+  setTimeout(() => { S.map?.invalidateSize(); drawMap(true); }, 60);
+  requestAnimationFrame(() => { S.map?.invalidateSize(); });
 }
 
 /* ─── snap ─── */
@@ -248,14 +251,18 @@ function renderList() {
   empty.classList.toggle("hidden", rows.length > 0);
   $("tripList").innerHTML = rows.map(t => {
     const stats = t.durationS ? fmtDur(t.durationS) : relTime(t.updatedAt);
-    const initials = (t.title||"?").replace(/\s+/g,"").slice(0,2).toUpperCase();
+    const words = (t.title||"?").trim().split(/\s+/);
+    const initials = words.length >= 2
+      ? (words[0][0]+words[1][0]).toUpperCase()
+      : (t.title||"?").replace(/\s+/g,"").slice(0,2).toUpperCase();
+    const badgeCls = t.starred ? "trip-badge starred-badge" : "trip-badge";
     return `<button type="button" class="trip-row" data-id="${t.id}">
-      <span class="trip-badge">${esc(initials)}</span>
+      <span class="${badgeCls}">${t.starred?"★":esc(initials)}</span>
       <span class="trip-info">
-        <span class="trip-name">${t.starred?'<span class="starred">★</span> ':''}${esc(t.title||"Untitled trip")}</span>
+        <span class="trip-name">${esc(t.title||"Untitled trip")}</span>
         <span class="trip-sub">${esc(t.preview||"No stops yet")}</span>
       </span>
-      <span class="trip-meta">${esc(stats)}<br>${t.stopCount||0} stops</span>
+      <span class="trip-meta">${esc(stats)}<br><span style="font-size:11px">${t.stopCount||0} stop${t.stopCount===1?"":"s"}</span></span>
       <svg class="trip-chev" viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 18l6-6-6-6"/></svg>
     </button>`;
   }).join("");
@@ -354,15 +361,23 @@ async function lookup(q) {
 
 function renderSuggestRows(hits) {
   const iconFor = kind => {
-    if (kind==="business") return `<svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor"><path d="M3 9l1-6h16l1 6v1a2 2 0 0 1-4 0 2 2 0 0 1-4 0 2 2 0 0 1-4 0 2 2 0 0 1-4 0V9zm0 5h18v7H3z"/></svg>`;
-    return `<svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor"><path d="M12 2a7 7 0 0 0-7 7c0 5 7 13 7 13s7-8 7-13a7 7 0 0 0-7-7zm0 9.5A2.5 2.5 0 1 1 12 6a2.5 2.5 0 0 1 0 5.5z"/></svg>`;
+    if (kind==="business") return {
+      cls:"sug-ico-blue",
+      svg:`<svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor"><path d="M3 9l1-6h16l1 6v1a2 2 0 0 1-4 0 2 2 0 0 1-4 0 2 2 0 0 1-4 0 2 2 0 0 1-4 0V9zm0 5h18v7H3z"/></svg>`
+    };
+    return {
+      cls:"sug-ico-green",
+      svg:`<svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor"><path d="M12 2a7 7 0 0 0-7 7c0 5 7 13 7 13s7-8 7-13a7 7 0 0 0-7-7zm0 9.5A2.5 2.5 0 1 1 12 6a2.5 2.5 0 0 1 0 5.5z"/></svg>`
+    };
   };
+  if (!hits.length) return `<div class="sug-empty">No results found</div>`;
   return hits.map((h,i) => {
+    const {cls,svg} = iconFor(h.kind);
     const name = esc(h.name||h.label.split(",")[0]);
     const addr = esc(h.label);
     return `<button class="sug-row" data-i="${i}">
-      <span class="sug-ico">${iconFor(h.kind)}</span>
-      <span><span class="sug-name">${name}</span><span class="sug-addr">${addr}</span></span>
+      <span class="sug-ico ${cls}">${svg}</span>
+      <span style="min-width:0"><span class="sug-name">${name}</span><span class="sug-addr">${addr}</span></span>
     </button>`;
   }).join("");
 }
@@ -371,16 +386,16 @@ function showHereSuggest() {
   const pins = readPins();
   const rows = [];
   if (S.here) rows.push(`<button class="sug-row" data-me="1">
-    <span class="sug-ico"><svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor"><circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3"/></svg></span>
-    <span><span class="sug-name">Your location</span><span class="sug-addr">${esc(S.hereLabel)}</span></span>
+    <span class="sug-ico sug-ico-blue"><svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor"><circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3"/></svg></span>
+    <span style="min-width:0"><span class="sug-name">Your location</span><span class="sug-addr">${esc(S.hereLabel)}</span></span>
   </button>`);
   if (pins.home) rows.push(`<button class="sug-row" data-pin="home">
-    <span class="sug-ico">🏠</span>
-    <span><span class="sug-name">Home</span><span class="sug-addr">${esc(pins.home.label)}</span></span>
+    <span class="sug-ico sug-ico-green"><svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor"><path d="M10 20v-6h4v6h5v-8h3L12 3 2 12h3v8z"/></svg></span>
+    <span style="min-width:0"><span class="sug-name">Home</span><span class="sug-addr">${esc(pins.home.label)}</span></span>
   </button>`);
   if (pins.work) rows.push(`<button class="sug-row" data-pin="work">
-    <span class="sug-ico">💼</span>
-    <span><span class="sug-name">Work</span><span class="sug-addr">${esc(pins.work.label)}</span></span>
+    <span class="sug-ico sug-ico-amber"><svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor"><path d="M20 6h-2.18A3 3 0 0 0 15 4H9a3 3 0 0 0-2.82 2H4a2 2 0 0 0-2 2v11a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2zm-5 0H9a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1z"/></svg></span>
+    <span style="min-width:0"><span class="sug-name">Work</span><span class="sug-addr">${esc(pins.work.label)}</span></span>
   </button>`);
   if (!rows.length) return;
   const box = $("suggestBox");
@@ -581,17 +596,25 @@ function bindStopInput(input) {
     const q = input.value.trim();
     if (q.length<2) { if(S.here&&!q) showHereSuggest(); else hideSuggest(); return; }
     S.suggestTimer = setTimeout(async ()=>{
+      // Show loading spinner immediately
+      const box = $("suggestBox");
+      box.innerHTML = `<div class="sug-loading"><span class="sug-spinner"></span>Searching…</div>`;
+      box._hits = null;
+      box.classList.remove("hidden");
+      positionSuggest();
       try {
         const hits = dedupeHits(await lookup(q));
         if (S.focusId!==id) return;
-        if (!hits.length) return hideSuggest();
-        const box = $("suggestBox");
         box.innerHTML = renderSuggestRows(hits);
         box._hits = hits;
+        if (!hits.length) {
+          // Keep "No results" visible briefly then hide
+          setTimeout(()=>{ if($("suggestBox").querySelector(".sug-empty")) hideSuggest(); }, 2000);
+        }
         box.classList.remove("hidden");
         positionSuggest();
       } catch(err) { if(!err.cancelled) hideSuggest(); }
-    }, 220);
+    }, 200);
   });
 
   input.addEventListener("keydown", async e => {
@@ -767,42 +790,44 @@ function chk(on) {
   return `<span class="mrow-check">${on?`<svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="#fff" stroke-width="2.5"><path d="M4 12l5 5L20 7"/></svg>`:""}</span>`;
 }
 
+function ico(svg) { return `<span class="mrow-ico">${svg}</span>`; }
 function moreBody() {
   const t    = S.trip;
   const pins = readPins();
-  const homeLabel = (pins.home?.label||"not set").split(",")[0];
-  const workLabel = (pins.work?.label||"not set").split(",")[0];
+  const homeLabel = (pins.home?.label||"Not set").split(",")[0];
+  const workLabel = (pins.work?.label||"Not set").split(",")[0];
+  const starSvg = `<svg viewBox="0 0 24 24" width="16" height="16" fill="${t.starred?"currentColor":"none"}" stroke="currentColor" stroke-width="2"><path d="M12 2l3.09 6.26L22 9.27l-5 4.87L18.18 21 12 17.77 5.82 21 7 14.14 2 9.27l6.91-1.01z"/></svg>`;
   return `
   <div class="modal-field">
     <label>Trip name</label>
     <input id="renameTitle" value="${esc(t.title||"")}" placeholder="Untitled trip"/>
   </div>
   <div class="msec">
-    <button class="mrow" data-more="star">${t.starred?"★ Starred":"☆ Star this trip"}<span class="mrow-sub">${t.starred?"On":""}</span></button>
-    <button class="mrow" data-more="round">Round trip${chk(t.roundtrip)}</button>
-    <button class="mrow" data-more="ends">Keep start &amp; end when optimising${chk(t.keepEnds)}</button>
+    <button class="mrow" data-more="star">${ico(starSvg)}${t.starred?"Starred":"Star this trip"}<span class="mrow-sub">${t.starred?"★":""}</span></button>
+    <button class="mrow" data-more="round">${ico(`<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 1l4 4-4 4M7 23l-4-4 4-4"/><path d="M3 11V9a4 4 0 0 1 4-4h14M21 13v2a4 4 0 0 1-4 4H3"/></svg>`)}Round trip${chk(t.roundtrip)}</button>
+    <button class="mrow" data-more="ends">${ico(`<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 3v18M19 3v18M5 12h14"/></svg>`)}Keep start &amp; end${chk(t.keepEnds)}</button>
   </div>
   <div class="msec">
-    <button class="mrow" data-more="tolls">Avoid tolls${chk(t.avoidTolls)}</button>
-    <button class="mrow" data-more="ferries">Avoid ferries${chk(t.avoidFerries)}</button>
-    <button class="mrow" data-more="refresh">Refresh route</button>
+    <button class="mrow" data-more="tolls">${ico(`<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="7" width="20" height="14" rx="2"/><path d="M12 11v6M9 14h6"/><path d="M7 7V5a5 5 0 0 1 10 0v2"/></svg>`)}Avoid tolls${chk(t.avoidTolls)}</button>
+    <button class="mrow" data-more="ferries">${ico(`<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"><path d="M2 21c.6.5 1.2 1 2.5 1 2.5 0 2.5-2 5-2 1.3 0 1.9.5 2.5 1 .6.5 1.2 1 2.5 1 2.5 0 2.5-2 5-2 1.3 0 1.9.5 2.5 1"/><path d="M19 11H5L3 8h18z"/><path d="M12 3v5M8 8V5h8v3"/></svg>`)}Avoid ferries${chk(t.avoidFerries)}</button>
+    <button class="mrow" data-more="refresh">${ico(`<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"><path d="M23 4v6h-6"/><path d="M1 20v-6h6"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>`)}Refresh route</button>
   </div>
   <div class="msec">
-    <button class="mrow" data-more="home">Set Home <span class="mrow-sub">${esc(homeLabel)}</span></button>
-    <button class="mrow" data-more="work">Set Work <span class="mrow-sub">${esc(workLabel)}</span></button>
+    <button class="mrow" data-more="home">${ico(`<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"><path d="M10 20v-6h4v6h5v-8h3L12 3 2 12h3v8z"/></svg>`)}Home<span class="mrow-sub">${esc(homeLabel)}</span></button>
+    <button class="mrow" data-more="work">${ico(`<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="7" width="20" height="14" rx="2"/><path d="M16 7V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v2"/></svg>`)}Work<span class="mrow-sub">${esc(workLabel)}</span></button>
   </div>
   <div class="msec">
-    <button class="mrow" data-more="waze">Open in Waze</button>
-    <button class="mrow" data-more="google">Open in Google Maps</button>
+    <button class="mrow" data-more="waze">${ico(`<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="10" r="7"/><path d="M12 17v4M8 21h8"/><circle cx="10" cy="9" r="1" fill="currentColor"/><circle cx="14" cy="9" r="1" fill="currentColor"/><path d="M10 12s.5 1 2 1 2-1 2-1"/></svg>`)}Open in Waze</button>
+    <button class="mrow" data-more="google">${ico(`<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2a7 7 0 0 0-7 7c0 5 7 13 7 13s7-8 7-13a7 7 0 0 0-7-7z"/><circle cx="12" cy="9" r="2.5"/></svg>`)}Open in Google Maps</button>
   </div>
   <div class="msec">
-    <button class="mrow" data-more="dup">Duplicate trip</button>
-    <button class="mrow" data-more="clear">Clear all stops</button>
-    <button class="mrow" data-more="export">Export backup</button>
-    <button class="mrow" data-more="import">Import backup</button>
+    <button class="mrow" data-more="dup">${ico(`<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>`)}Duplicate trip</button>
+    <button class="mrow" data-more="clear">${ico(`<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6M14 11v6"/></svg>`)}Clear all stops</button>
+    <button class="mrow" data-more="export">${ico(`<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>`)}Export backup</button>
+    <button class="mrow" data-more="import">${ico(`<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>`)}Import backup</button>
   </div>
-  <div class="msec">
-    <button class="mrow danger" data-more="del">Delete trip</button>
+  <div class="msec" style="margin-bottom:0">
+    <button class="mrow danger" data-more="del">${ico(`<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6M14 11v6"/></svg>`)}Delete trip</button>
   </div>`;
 }
 
@@ -982,6 +1007,7 @@ function mapPad() {
 function drawMap(fit) {
   ensureMap();
   S.markers.forEach(m=>m.remove()); S.markers=[];
+  if (S.lineOutline) { S.lineOutline.remove(); S.lineOutline=null; }
   if (S.line) { S.line.remove(); S.line=null; }
   if (S.hereDot) { S.hereDot.remove(); S.hereDot=null; }
   const pts=geocodedStops();
@@ -1001,7 +1027,9 @@ function drawMap(fit) {
   const pad=mapPad();
   try {
     if (S.route?.geometry?.length) {
-      S.line=L.polyline(S.route.geometry,{color:"#1A73E8",weight:5,opacity:.94}).addTo(S.map);
+      // White outline for visibility on all map tiles
+      S.lineOutline=L.polyline(S.route.geometry,{color:"#fff",weight:9,opacity:.55}).addTo(S.map);
+      S.line=L.polyline(S.route.geometry,{color:"#1A73E8",weight:5.5,opacity:.96}).addTo(S.map);
       S.map.fitBounds(S.line.getBounds(),pad);
     } else if (pts.length===1) S.map.setView([pts[0].lat,pts[0].lng],14);
     else if (pts.length>1) S.map.fitBounds(L.latLngBounds(pts.map(p=>[p.lat,p.lng])),pad);
@@ -1205,6 +1233,14 @@ function importTripFromUrl() {
     });
   }
 })();
+
+/* ─── tap map to dismiss keyboard ─── */
+document.getElementById("map").addEventListener("click", () => {
+  if (document.activeElement && document.activeElement !== document.body) {
+    document.activeElement.blur();
+    hideSuggest();
+  }
+});
 
 /* ─── boot ─── */
 ensureMap();
