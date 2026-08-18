@@ -698,6 +698,34 @@ input,textarea { outline:none; border:none; -webkit-appearance:none; background:
 }
 .ios-close:hover { background:rgba(255,255,255,.1); }
 
+/* ── Optimise nudge ──────────────────────────────── */
+.optimise-nudge {
+  display:flex; align-items:center; gap:6px;
+  margin:0 12px 8px; padding:10px 12px 10px 14px;
+  background:rgba(251,188,4,.12); border-radius:14px;
+  border:1px solid rgba(251,188,4,.3);
+  font-size:13px; font-weight:500; color:var(--t1);
+  flex-shrink:0; animation:dropIn .2s ease both;
+}
+@media (prefers-color-scheme:dark) {
+  .optimise-nudge { background:rgba(251,188,4,.08); border-color:rgba(251,188,4,.2); }
+}
+.optimise-nudge svg { color:#B8860B; flex-shrink:0; }
+@media (prefers-color-scheme:dark) { .optimise-nudge svg { color:var(--amber); } }
+.optimise-nudge span { flex:1; }
+.optimise-nudge #nudgeOptimise {
+  background:var(--blue); color:#fff;
+  border-radius:14px; padding:5px 12px;
+  font-size:13px; font-weight:700; flex-shrink:0;
+  transition:transform .1s;
+}
+.optimise-nudge #nudgeOptimise:active { transform:scale(.91); }
+.optimise-nudge #nudgeDismiss {
+  color:var(--t3); font-size:16px; padding:2px 4px; flex-shrink:0;
+  border-radius:8px; transition:background .12s;
+}
+.optimise-nudge #nudgeDismiss:hover { background:rgba(0,0,0,.06); }
+
 /* ── Reduced motion ──────────────────────────────── */
 @media (prefers-reduced-motion:reduce) {
   *,*::before,*::after { transition:none !important; animation:none !important; }

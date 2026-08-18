@@ -281,7 +281,7 @@ function openTrip(id) {
   if (!raw) return toast("Trip not found");
   const base = emptyTrip();
   S.trip = { ...base, ...raw, stops: raw.stops?.length ? raw.stops : base.stops };
-  S.route=null; S.navigating=false; S.navI=0;
+  S.route=null; S.navigating=false; S.navI=0; nudgeDismissed=false;
   rememberLast(id);
   syncStops(true);
   showTrip();
@@ -507,6 +507,7 @@ function updateRowMeta() {
   });
   updateSummary();
   updateNav();
+  updateNudge();
 }
 
 function syncStops(force) {
@@ -554,6 +555,28 @@ function updateSummary() {
   sub.textContent   = `${S.trip.title||"Trip"}${S.trip.roundtrip?" · round trip":""}`;
   start.disabled    = false;
 }
+
+/* ─── optimise nudge ─── */
+let nudgeDismissed = false;
+function updateNudge() {
+  const nudge = $("optimiseNudge");
+  if (!nudge) return;
+  const pts = geocodedStops();
+  // Show when 3+ geocoded stops, not round trip, route loaded, not dismissed, not already optimised this session
+  const show = !nudgeDismissed && !S.trip?.roundtrip && pts.length >= 3 && S.route && !S.routing;
+  nudge.classList.toggle("hidden", !show);
+}
+$("nudgeOptimise")?.addEventListener("click", () => {
+  nudgeDismissed = true;
+  $("optimiseNudge").classList.add("hidden");
+  if (geocodedStops().length < 3) return toast("Add at least 3 places first");
+  $("btnOptimise").classList.add("loading");
+  scheduleRoute(true);
+});
+$("nudgeDismiss")?.addEventListener("click", () => {
+  nudgeDismissed = true;
+  $("optimiseNudge").classList.add("hidden");
+});
 
 /* ─── nav bar ─── */
 function updateNav() {
@@ -978,6 +1001,8 @@ async function routeNow(optimize) {
       // Walk the original stop list; replace each geocoded slot with the next reordered stop.
       let ri = 0;
       S.trip.stops = S.trip.stops.map(s => geocodedIds.has(s.id) ? reordered[ri++] : s).filter(Boolean);
+      nudgeDismissed = true;
+      $("optimiseNudge")?.classList.add("hidden");
       syncStops(true); toast("Reordered for a shorter drive");
     }
     S.route=data; S.trip.distanceM=data.distanceM; S.trip.durationS=data.durationS;

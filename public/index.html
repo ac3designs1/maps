@@ -15,7 +15,7 @@
   <link rel="icon" href="icon.svg"/>
   <title>Trips</title>
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
-  <link rel="stylesheet" href="styles.css?v=21"/>
+  <link rel="stylesheet" href="styles.css?v=22"/>
 </head>
 <body>
 
@@ -135,6 +135,14 @@
       <button id="btnNext" class="btn-go">Go</button>
     </div>
 
+    <!-- optimise nudge -->
+    <div id="optimiseNudge" class="optimise-nudge hidden">
+      <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M12 2l3.09 6.26L22 9.27l-5 4.87L18.18 21 12 17.77 5.82 21 7 14.14 2 9.27l6.91-1.01z"/></svg>
+      <span>Route could be shorter — </span>
+      <button id="nudgeOptimise">Optimise</button>
+      <button id="nudgeDismiss" aria-label="Dismiss">✕</button>
+    </div>
+
     <!-- stop list -->
     <div id="stopList" class="stop-list"></div>
 
@@ -176,6 +184,6 @@
 </div>
 
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-<script src="app.js?v=21"></script>
+<script src="app.js?v=22"></script>
 </body>
 </html>
