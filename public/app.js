@@ -5,6 +5,7 @@
 const STORE_KEY = "maps.trips.v1";
 const PINS_KEY  = "maps.pins.v1";
 const LAST_KEY  = "maps.lastTrip";
+const RECENT_KEY = "maps.recentPlaces";
 
 /* ─── state ─── */
 const S = {
@@ -18,6 +19,8 @@ const S = {
   focusId: null,
   suggestTimer: 0,
   suggestAc: null,
+  sugI: 0,
+  picking: false,
   saveTimer: 0,
   routeTimer: 0,
   routeSeq: 0,
@@ -214,18 +217,53 @@ function dedupeHits(hits) {
   const out = [];
   for (const h of hits) {
     const dup = out.some(p => {
-      const dlat=(h.lat-p.lat)*111000, dlng=(h.lng-p.lng)*111000*Math.cos(h.lat*Math.PI/180);
-      const dm=Math.sqrt(dlat*dlat+dlng*dlng);
-      if (dm<35) return true;
+      if (h.placeId && p.placeId && h.placeId === p.placeId) return true;
       const norm=s=>String(s||"").toLowerCase().replace(/[^\w\s]/g," ").replace(/\s+/g," ").trim();
       const a=norm(h.label),b=norm(p.label);
       if (a&&a===b) return true;
       const na=norm(h.name||h.label.split(",")[0]),nb=norm(p.name||p.label.split(",")[0]);
+      if (!Number.isFinite(h.lat) || !Number.isFinite(p.lat)) return !!(na && na === nb);
+      const dlat=(h.lat-p.lat)*111000, dlng=(h.lng-p.lng)*111000*Math.cos(h.lat*Math.PI/180);
+      const dm=Math.sqrt(dlat*dlat+dlng*dlng);
+      if (dm<35) return true;
       return dm<80&&na&&na===nb;
     });
     if (!dup) out.push(h);
   }
   return out;
+}
+
+function readRecentPlaces() {
+  try {
+    const rows = JSON.parse(localStorage.getItem(RECENT_KEY) || "[]");
+    return Array.isArray(rows)
+      ? rows.filter(p => p && Number.isFinite(p.lat) && Number.isFinite(p.lng) && (p.label || p.name))
+      : [];
+  } catch { return []; }
+}
+function pushRecentPlace(hit) {
+  if (!hit || hit.here || !Number.isFinite(hit.lat) || !Number.isFinite(hit.lng)) return;
+  const row = {
+    name: hit.name || String(hit.label||"").split(",")[0],
+    sub: hit.sub || "",
+    label: hit.label,
+    lat: hit.lat,
+    lng: hit.lng,
+    kind: hit.kind || "address",
+  };
+  const rest = readRecentPlaces().filter(p => {
+    const dm = Math.hypot((p.lat-row.lat)*111000, (p.lng-row.lng)*111000);
+    const same = String(p.label||"").toLowerCase() === String(row.label||"").toLowerCase();
+    return dm > 60 && !same;
+  });
+  try { localStorage.setItem(RECENT_KEY, JSON.stringify([row, ...rest].slice(0, 8))); } catch {}
+}
+function matchRecents(q) {
+  const n = String(q||"").trim().toLowerCase();
+  if (n.length < 2) return [];
+  return readRecentPlaces().filter(p =>
+    String(p.name||"").toLowerCase().includes(n) || String(p.label||"").toLowerCase().includes(n)
+  );
 }
 
 /* ─── screens ─── */
@@ -291,7 +329,12 @@ function renderContinue() {
 function renderList() {
   const q = S.filter.trim().toLowerCase();
   const rows = S.trips
-    .filter(t=>!q||`${t.title} ${t.preview}`.toLowerCase().includes(q))
+    .filter(t=>{
+      if (!q) return true;
+      const rec = (S.records||[]).find(r=>r.id===t.id);
+      const stops = (rec?.stops||[]).map(s=>`${s.label||""} ${s.query||""}`).join(" ");
+      return `${t.title} ${t.preview} ${stops}`.toLowerCase().includes(q);
+    })
     .sort((a,b)=>(a.starred?0:1)-(b.starred?0:1)||b.updatedAt-a.updatedAt);
   const empty = $("emptyState");
   empty.classList.toggle("hidden", rows.length > 0);
@@ -402,7 +445,10 @@ document.addEventListener("visibilitychange", () => {
 /* ─── autocomplete ─── */
 function hideSuggest() {
   const box = $("suggestBox");
-  box.classList.add("hidden"); box.innerHTML=""; box._hits=null;
+  box.classList.add("hidden");
+  box.classList.remove("is-loading");
+  box.innerHTML=""; box._hits=null;
+  S.sugI = 0;
 }
 
 function activeStopInput() {
@@ -446,8 +492,28 @@ async function lookup(q) {
   u.searchParams.set("q",q);
   u.searchParams.set("lat",String(S.here?.lat ?? S.bias.lat));
   u.searchParams.set("lon",String(S.here?.lng ?? S.bias.lng));
-  const d = await api(u.pathname+u.search,{signal:S.suggestAc.signal,timeout:14000});
+  const d = await api(u.pathname+u.search,{signal:S.suggestAc.signal,timeout:9000});
   return d.hits||[];
+}
+
+function hitName(h) {
+  return String(h?.name || String(h?.label||"").split(",")[0] || "").trim();
+}
+function hitAddr(h) {
+  const name = hitName(h);
+  const sub = String(h?.sub || "").trim();
+  if (sub && sub.toLowerCase() !== name.toLowerCase()) return sub;
+  const tidied = String(h?.label || "").replace(/,?\s*Australia\s*$/i, "").trim();
+  if (name && tidied.toLowerCase().startsWith(name.toLowerCase())) {
+    return tidied.slice(name.length).replace(/^[\s,]+/, "");
+  }
+  return tidied !== name ? tidied : "";
+}
+function fmtSugDist(m) {
+  if (!Number.isFinite(m)) return "";
+  if (m < 950) return `${Math.max(1, Math.round(m / 10) * 10)} m`;
+  const km = m / 1000;
+  return km < 9.5 ? `${km.toFixed(1)} km` : `${Math.round(km)} km`;
 }
 
 function renderSuggestRows(hits) {
@@ -455,6 +521,10 @@ function renderSuggestRows(hits) {
     if (kind==="business") return {
       cls:"sug-ico-blue",
       svg:`<svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor"><path d="M3 9l1-6h16l1 6v1a2 2 0 0 1-4 0 2 2 0 0 1-4 0 2 2 0 0 1-4 0 2 2 0 0 1-4 0V9zm0 5h18v7H3z"/></svg>`
+    };
+    if (kind==="recent") return {
+      cls:"sug-ico-amber",
+      svg:`<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>`
     };
     return {
       cls:"sug-ico-green",
@@ -464,97 +534,150 @@ function renderSuggestRows(hits) {
   if (!hits.length) return `<div class="sug-empty">No results found</div>`;
   return hits.map((h,i) => {
     const {cls,svg} = iconFor(h.kind);
-    const name = esc(h.name||h.label.split(",")[0]);
-    const addr = esc(h.label);
-    return `<button class="sug-row" data-i="${i}">
+    const name = esc(hitName(h));
+    const addr = esc(hitAddr(h));
+    const dist = esc(fmtSugDist(h.distanceM));
+    return `<button type="button" class="sug-row${i===S.sugI?" is-on":""}" data-i="${i}">
       <span class="sug-ico ${cls}">${svg}</span>
-      <span style="min-width:0"><span class="sug-name">${name}</span><span class="sug-addr">${addr}</span></span>
+      <span class="sug-text">
+        <span class="sug-top"><span class="sug-name">${name}</span>${dist?`<span class="sug-dist">${dist}</span>`:""}</span>
+        ${addr?`<span class="sug-addr">${addr}</span>`:""}
+      </span>
     </button>`;
   }).join("");
 }
 
-function showHereSuggest() {
-  const pins = readPins();
-  const rows = [];
-  if (S.here) rows.push(`<button class="sug-row" data-me="1">
-    <span class="sug-ico sug-ico-blue"><svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor"><circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3"/></svg></span>
-    <span style="min-width:0"><span class="sug-name">Your location</span><span class="sug-addr">${esc(S.hereLabel)}</span></span>
-  </button>`);
-  if (pins.home) rows.push(`<button class="sug-row" data-pin="home">
-    <span class="sug-ico sug-ico-green"><svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor"><path d="M10 20v-6h4v6h5v-8h3L12 3 2 12h3v8z"/></svg></span>
-    <span style="min-width:0"><span class="sug-name">Home</span><span class="sug-addr">${esc(pins.home.label)}</span></span>
-  </button>`);
-  if (pins.work) rows.push(`<button class="sug-row" data-pin="work">
-    <span class="sug-ico sug-ico-amber"><svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor"><path d="M20 6h-2.18A3 3 0 0 0 15 4H9a3 3 0 0 0-2.82 2H4a2 2 0 0 0-2 2v11a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2zm-5 0H9a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1z"/></svg></span>
-    <span style="min-width:0"><span class="sug-name">Work</span><span class="sug-addr">${esc(pins.work.label)}</span></span>
-  </button>`);
-  if (!rows.length) return;
+function paintHits(hits, { loading } = {}) {
   const box = $("suggestBox");
-  box.innerHTML = rows.join(""); box._hits = null;
+  S.sugI = 0;
+  box.classList.toggle("is-loading", !!loading);
+  box.innerHTML = renderSuggestRows(hits);
+  box._hits = hits;
   box.classList.remove("hidden");
   positionSuggest();
 }
 
-function applyHit(hit) {
-  const stop = S.trip?.stops.find(s=>s.id===S.focusId);
-  if (!stop) return;
-  if (isHereStop(stop) && !hit.here) {
-    const next = S.trip.stops.find((s,i)=>i>0 && !isHereStop(s) && !(s.label||s.query||"").trim())
-      || S.trip.stops.find((s,i)=>i>0 && !isHereStop(s));
-    if (next) {
-      S.focusId = next.id;
-      applyHit(hit);
+function showEmptySuggest() {
+  const pins = readPins();
+  const recents = readRecentPlaces();
+  const rows = [];
+  if (S.here) rows.push(`<button type="button" class="sug-row" data-me="1">
+    <span class="sug-ico sug-ico-blue"><svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor"><circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3"/></svg></span>
+    <span class="sug-text"><span class="sug-top"><span class="sug-name">Your location</span></span><span class="sug-addr">${esc(S.hereLabel)}</span></span>
+  </button>`);
+  if (pins.home) rows.push(`<button type="button" class="sug-row" data-pin="home">
+    <span class="sug-ico sug-ico-green"><svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor"><path d="M10 20v-6h4v6h5v-8h3L12 3 2 12h3v8z"/></svg></span>
+    <span class="sug-text"><span class="sug-top"><span class="sug-name">Home</span></span><span class="sug-addr">${esc(pins.home.label)}</span></span>
+  </button>`);
+  if (pins.work) rows.push(`<button type="button" class="sug-row" data-pin="work">
+    <span class="sug-ico sug-ico-amber"><svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor"><path d="M20 6h-2.18A3 3 0 0 0 15 4H9a3 3 0 0 0-2.82 2H4a2 2 0 0 0-2 2v11a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2zm-5 0H9a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1z"/></svg></span>
+    <span class="sug-text"><span class="sug-top"><span class="sug-name">Work</span></span><span class="sug-addr">${esc(pins.work.label)}</span></span>
+  </button>`);
+  if (recents.length) {
+    rows.push(`<div class="sug-head">Recent</div>`);
+    S.sugI = 0;
+    rows.push(renderSuggestRows(recents.map(r => ({ ...r, kind: r.kind || "recent" }))));
+  }
+  if (!rows.length) return hideSuggest();
+  const box = $("suggestBox");
+  box.classList.remove("is-loading");
+  box.innerHTML = rows.join("");
+  box._hits = recents.length ? recents : null;
+  box.classList.remove("hidden");
+  positionSuggest();
+}
+function showHereSuggest() { showEmptySuggest(); }
+
+async function applyHit(hit) {
+  if (!hit || S.picking) return;
+  S.picking = true;
+  try {
+    if (hit.placeId && !Number.isFinite(hit.lat)) {
+      try {
+        const d = await api(`/api/place?id=${encodeURIComponent(hit.placeId)}`, { timeout: 10000 });
+        if (d.hit) hit = { ...hit, ...d.hit };
+      } catch (e) {
+        if (!e.cancelled) toast(e.message || "Couldn't find that place");
+        return;
+      }
+    }
+    if (!hit.here && !Number.isFinite(hit.lat)) {
+      toast("Couldn't find that place");
       return;
     }
-    toast("Your location stays as the start");
+    let stop = S.trip?.stops.find(s=>s.id===S.focusId);
+    if (!stop) return;
+    if (isHereStop(stop) && !hit.here) {
+      const next = S.trip.stops.find((s,i)=>i>0 && !isHereStop(s) && !(s.label||s.query||"").trim())
+        || S.trip.stops.find((s,i)=>i>0 && !isHereStop(s));
+      if (next) {
+        S.focusId = next.id;
+        stop = next;
+      } else {
+        toast("Your location stays as the start");
+        hideSuggest();
+        return;
+      }
+    }
+    const isHere = !!hit.here;
+    const displayVal = isHere ? hereDisplay() : (hitName(hit) || hit.label);
+    stop.query = displayVal;
+    stop.label = isHere ? hereDisplay() : (hit.label || displayVal);
+    stop.lat = hit.lat;
+    stop.lng = hit.lng;
+    stop.here = isHere;
     hideSuggest();
-    return;
-  }
-  const isHere = !!hit.here;
-  const displayVal = isHere ? hereDisplay() : (hit.name && hit.name !== hit.label ? hit.name : hit.label);
-  stop.query = displayVal;
-  stop.label = isHere ? hereDisplay() : hit.label;
-  stop.lat = hit.lat;
-  stop.lng = hit.lng;
-  stop.here = isHere;
-  hideSuggest();
-  const input = $("stopList").querySelector(`.stop-input[data-id="${stop.id}"]`);
-  if (input) { input.value = displayVal; input.classList.remove("unresolved"); }
-  if (isHere) {
-    for (const s of S.trip.stops) { if (s.id !== stop.id) s.here = false; }
-    pinHereFirst();
-  }
-  syncStops(true);
-  updateRowMeta(); scheduleSave(); scheduleRoute(false); buzz();
-  const idx = S.trip.stops.findIndex(s=>s.id===stop.id);
-  const next = S.trip.stops.slice(idx+1).find(s=>!(s.label||s.query).trim());
-  if (next) {
-    setTimeout(() => {
-      const ni = $("stopList").querySelector(`.stop-input[data-id="${next.id}"]`);
-      ni?.focus();
-    }, 80);
-  } else if (geocodedStops().length >= 2) {
-    document.activeElement?.blur();
-    setSnap("mid");
-    setTimeout(() => { S.map?.invalidateSize(); drawMap(true); }, 280);
+    const input = $("stopList").querySelector(`.stop-input[data-id="${stop.id}"]`);
+    if (input) { input.value = displayVal; input.classList.remove("unresolved"); }
+    if (isHere) {
+      for (const s of S.trip.stops) { if (s.id !== stop.id) s.here = false; }
+      pinHereFirst();
+    } else {
+      pushRecentPlace(hit);
+    }
+    syncStops(true);
+    updateRowMeta(); scheduleSave(); scheduleRoute(false); buzz();
+    const idx = S.trip.stops.findIndex(s=>s.id===stop.id);
+    const next = S.trip.stops.slice(idx+1).find(s=>!(s.label||s.query).trim());
+    if (next) {
+      setTimeout(() => {
+        const ni = $("stopList").querySelector(`.stop-input[data-id="${next.id}"]`);
+        ni?.focus();
+      }, 60);
+    } else if (geocodedStops().length >= 2) {
+      document.activeElement?.blur();
+      setSnap("mid");
+      setTimeout(() => { S.map?.invalidateSize(); drawMap(true); }, 280);
+    }
+  } finally {
+    S.picking = false;
   }
 }
 
-$("suggestBox").addEventListener("click", async e => {
-  const btn = e.target.closest(".sug-row");
-  if (!btn) return;
+async function pickSugRow(btn) {
+  if (!btn || S.picking) return;
   if (btn.dataset.me) {
     if (!S.here) return toast("Location unavailable");
-    applyHit({label:hereDisplay(),lat:S.here.lat,lng:S.here.lng,here:true,name:hereDisplay()}); return;
+    return applyHit({label:hereDisplay(),lat:S.here.lat,lng:S.here.lng,here:true,name:hereDisplay()});
   }
   if (btn.dataset.pin) {
     const h=pinHit(btn.dataset.pin);
     if (!h) return toast("Set this in More first");
-    applyHit(h); return;
+    return applyHit(h);
   }
   const idx = Number(btn.dataset.i);
   const h = ($("suggestBox")._hits||[])[idx];
-  if (h) applyHit(h);
+  if (h) return applyHit(h);
+}
+
+$("suggestBox").addEventListener("pointerdown", e => {
+  if (e.target.closest(".sug-row")) e.preventDefault();
+});
+$("suggestBox").addEventListener("click", async e => {
+  const btn = e.target.closest(".sug-row");
+  if (!btn) return;
+  e.preventDefault();
+  await pickSugRow(btn);
 });
 
 document.addEventListener("click", e => {
@@ -585,6 +708,7 @@ function makeRow(s,i,n) {
     </div>
     <div class="stop-input-col">
       <input class="stop-input${s.query&&!Number.isFinite(s.lat)?" unresolved":""}"
+        type="${isHereStop(s)?"text":"search"}"
         data-id="${s.id}" value="${esc(isHereStop(s)?hereDisplay():(s.query||s.label))}"
         placeholder="${esc(stopPlaceholder(s,i,n))}"
         autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false"
@@ -624,6 +748,7 @@ function updateRowMeta() {
     if (input) {
       const here = isHereStop(s);
       input.readOnly = here;
+      input.type = here ? "text" : "search";
       input.inputMode = here ? "none" : "search";
       input.placeholder = stopPlaceholder(s, i, n);
       if (document.activeElement !== input) {
@@ -737,6 +862,44 @@ function updateNav() {
 }
 
 /* ─── bind inputs ─── */
+function moveSug(delta) {
+  const box = $("suggestBox");
+  const hits = box._hits || [];
+  if (!hits.length || box.classList.contains("hidden")) return;
+  S.sugI = (S.sugI + delta + hits.length) % hits.length;
+  box.querySelectorAll(".sug-row[data-i]").forEach((el, i) => el.classList.toggle("is-on", i === S.sugI));
+  box.querySelector(".sug-row.is-on")?.scrollIntoView({ block: "nearest" });
+}
+
+function runSuggest(id, q) {
+  clearTimeout(S.suggestTimer);
+  const box = $("suggestBox");
+  const hasSearchHits = Array.isArray(box._hits) && box._hits.length && !box.querySelector("[data-me],[data-pin],.sug-head");
+  box.classList.add("is-loading");
+  box.classList.remove("hidden");
+  if (!hasSearchHits) {
+    box.innerHTML = `<div class="sug-loading"><span class="sug-spinner"></span>Searching…</div>`;
+    box._hits = null;
+  }
+  positionSuggest();
+  S.suggestTimer = setTimeout(async () => {
+    try {
+      const recents = matchRecents(q);
+      const hits = dedupeHits([...recents, ...await lookup(q)]).slice(0, 8);
+      if (S.focusId !== id) return;
+      const live = activeStopInput();
+      if (live && live.value.trim() !== q) return;
+      paintHits(hits);
+    } catch (err) {
+      if (!err.cancelled && S.focusId === id) {
+        const box = $("suggestBox");
+        box.classList.remove("is-loading");
+        if (!box._hits?.length) paintHits([]);
+      }
+    }
+  }, 140);
+}
+
 function bindStopInput(input) {
   if (input.dataset.bound) return;
   input.dataset.bound = "1";
@@ -746,8 +909,10 @@ function bindStopInput(input) {
     S.focusId = id;
     setSnap("full");
     const stop = S.trip?.stops.find(s=>s.id===id);
-    if (isHereStop(stop)) showHereSuggest();
-    else if (S.here&&!input.value) showHereSuggest();
+    const q = input.value.trim();
+    if (isHereStop(stop) || input.readOnly) showEmptySuggest();
+    else if (!q) showEmptySuggest();
+    else if (q.length >= 2) runSuggest(id, q);
     requestAnimationFrame(()=>positionSuggest());
   });
 
@@ -767,7 +932,7 @@ function bindStopInput(input) {
   input.addEventListener("input", () => {
     const stop = S.trip?.stops.find(s=>s.id===id);
     if (!stop) return;
-    if (input.readOnly) { showHereSuggest(); return; }
+    if (input.readOnly) { showEmptySuggest(); return; }
     const q = input.value.trim();
     const qn = q.toLowerCase();
     const lockedHere = !!(stop.here || isHereStop(stop));
@@ -780,7 +945,7 @@ function bindStopInput(input) {
         stop.here = true;
         if (S.here) { stop.lat = S.here.lat; stop.lng = S.here.lng; }
         input.value = hereDisplay();
-        showHereSuggest();
+        showEmptySuggest();
         scheduleSave();
         return;
       }
@@ -789,47 +954,29 @@ function bindStopInput(input) {
         stop.query = hereDisplay();
         stop.label = hereDisplay();
         if (S.here) { stop.lat = S.here.lat; stop.lng = S.here.lng; }
-        if (!q) showHereSuggest();
+        if (!q) showEmptySuggest();
         return;
       }
     }
     stop.query=input.value; stop.lat=null; stop.lng=null; stop.label=""; stop.here=false;
     input.classList.toggle("unresolved",!!input.value.trim());
-    clearTimeout(S.suggestTimer);
-    if (q.length<2) { if(S.here&&!q) showHereSuggest(); else hideSuggest(); return; }
-    S.suggestTimer = setTimeout(async ()=>{
-      // Show loading spinner immediately
-      const box = $("suggestBox");
-      box.innerHTML = `<div class="sug-loading"><span class="sug-spinner"></span>Searching…</div>`;
-      box._hits = null;
-      box.classList.remove("hidden");
-      positionSuggest();
-      try {
-        const hits = dedupeHits(await lookup(q));
-        if (S.focusId!==id) return;
-        box.innerHTML = renderSuggestRows(hits);
-        box._hits = hits;
-        if (!hits.length) {
-          // Keep "No results" visible briefly then hide
-          setTimeout(()=>{ if($("suggestBox").querySelector(".sug-empty")) hideSuggest(); }, 2000);
-        }
-        box.classList.remove("hidden");
-        positionSuggest();
-      } catch(err) { if(!err.cancelled) hideSuggest(); }
-    }, 200);
+    if (q.length<2) { showEmptySuggest(); return; }
+    runSuggest(id, q);
   });
 
   input.addEventListener("keydown", async e => {
     if (e.key==="Escape") { hideSuggest(); input.blur(); return; }
+    if (e.key==="ArrowDown") { e.preventDefault(); moveSug(1); return; }
+    if (e.key==="ArrowUp") { e.preventDefault(); moveSug(-1); return; }
     if (e.key!=="Enter") return;
     e.preventDefault();
     const q = input.value.trim();
     if (!q) return;
-    // If there's already a result in the suggest box, use the first one
-    const firstHit = ($("suggestBox")._hits||[])[0];
-    if (firstHit) { applyHit(firstHit); return; }
+    const hits = $("suggestBox")._hits || [];
+    const pick = hits[Math.max(0, Math.min(S.sugI, hits.length-1))] || hits[0];
+    if (pick) { applyHit(pick); return; }
     clearTimeout(S.suggestTimer);
-    try { const hits=await lookup(q); if(hits[0]) applyHit(hits[0]); }
+    try { const next=await lookup(q); if(next[0]) applyHit(next[0]); }
     catch(err) { if(!err.cancelled) toast(err.message); }
   });
 }

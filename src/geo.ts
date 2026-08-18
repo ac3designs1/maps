@@ -2,11 +2,35 @@ const UA = "TripPlanner/1.0 (https://github.com/ac3designs1/maps)";
 
 export type SuggestHit = {
   label: string;
-  lat: number;
-  lng: number;
+  lat: number | null;
+  lng: number | null;
   kind?: string;
   name?: string;
+  sub?: string;
+  placeId?: string;
+  distanceM?: number;
 };
+
+export function tidyAddr(addr: string, name?: string) {
+  let s = String(addr || "")
+    .replace(/\s+/g, " ")
+    .replace(/,?\s*Australia\s*$/i, "")
+    .trim();
+  const n = String(name || "").trim();
+  if (n) {
+    const low = s.toLowerCase();
+    const nl = n.toLowerCase();
+    if (low === nl) return "";
+    if (low.startsWith(nl)) s = s.slice(n.length).replace(/^[\s,]+/, "");
+  }
+  return s;
+}
+
+export function placeLabel(name: string, addr: string) {
+  const n = String(name || "").trim();
+  const sub = tidyAddr(addr, n);
+  return [n, sub].filter(Boolean).join(", ") || String(addr || "").trim() || n;
+}
 
 const AU = {
   minLng: 112.5,
@@ -129,19 +153,26 @@ function normText(s: string) {
 }
 
 function distM(a: SuggestHit, b: SuggestHit) {
-  const dlat = (a.lat - b.lat) * 111000;
-  const dlng = (a.lng - b.lng) * 111000 * Math.cos((a.lat * Math.PI) / 180);
+  if (!Number.isFinite(a.lat) || !Number.isFinite(a.lng) || !Number.isFinite(b.lat) || !Number.isFinite(b.lng)) {
+    return Infinity;
+  }
+  const dlat = ((a.lat as number) - (b.lat as number)) * 111000;
+  const dlng = ((a.lng as number) - (b.lng as number)) * 111000 * Math.cos(((a.lat as number) * Math.PI) / 180);
   return Math.sqrt(dlat * dlat + dlng * dlng);
 }
 
 export function isSamePlace(a: SuggestHit, b: SuggestHit) {
-  const dm = distM(a, b);
-  if (dm < 35) return true;
+  if (a.placeId && b.placeId && a.placeId === b.placeId) return true;
   const labelA = normText(a.label);
   const labelB = normText(b.label);
-  if (labelA && labelA === labelB) return true;
   const nameA = normText(a.name || a.label.split(",")[0]);
   const nameB = normText(b.name || b.label.split(",")[0]);
+  const dm = distM(a, b);
+  if (!Number.isFinite(a.lat) || !Number.isFinite(b.lat)) {
+    return !!(labelA && labelA === labelB) || !!(nameA && nameA === nameB);
+  }
+  if (dm < 35) return true;
+  if (labelA && labelA === labelB) return true;
   if (dm < 80 && nameA && nameA === nameB) return true;
   return false;
 }
@@ -178,12 +209,15 @@ async function photonSuggest(q: string, lat?: number, lon?: number): Promise<Sug
     const props = f.properties || {};
     if (!isAusCountry(props)) continue;
     const key = String(props.osm_key || "");
+    const name = String(props.name || "");
+    const label = fmtPhoton(props, q);
     out.push({
-      label: fmtPhoton(props, q),
+      label,
       lat: latN,
       lng,
       kind: BIZ_KEYS.has(key) ? "business" : "address",
-      name: String(props.name || ""),
+      name: name || label.split(",")[0],
+      sub: tidyAddr(label, name),
     });
   }
   return out;
@@ -219,12 +253,15 @@ async function nominatimSuggest(q: string, lat?: number, lon?: number): Promise<
     const cc = `${item.address?.country || ""} ${item.address?.country_code || ""}`.toLowerCase();
     if (cc && !/\baustralia\b|\bau\b/.test(cc)) continue;
     const biz = BIZ_KEYS.has(item.class || "");
+    const name = item.name || "";
+    const label = fmtNominatim(item) || q;
     out.push({
-      label: fmtNominatim(item) || q,
+      label,
       lat: latN,
       lng,
       kind: biz ? "business" : "address",
-      name: item.name || "",
+      name: name || label.split(",")[0],
+      sub: tidyAddr(label, name),
     });
   }
   return out;
@@ -232,17 +269,25 @@ async function nominatimSuggest(q: string, lat?: number, lon?: number): Promise<
 
 function rankHits(query: string, hits: SuggestHit[], lat?: number, lon?: number) {
   const q = query.toLowerCase();
+  const looksStreet = /^\d+\s/.test(query.trim());
   const bias = biasPoint(lat, lon);
-  const scored = hits.map((h) => {
+  const scored = hits.map((h, i) => {
     const name = (h.name || h.label).toLowerCase();
     let score = 0;
     if (name === q) score += 120;
     else if (name.startsWith(q)) score += 80;
     else if (name.includes(q)) score += 40;
-    if (h.kind === "business") score += 30;
-    const dlat = h.lat - bias.lat;
-    const dlng = h.lng - bias.lon;
-    score -= Math.sqrt(dlat * dlat + dlng * dlng) * 8;
+    else if (h.label.toLowerCase().includes(q)) score += 18;
+    if (h.kind === "business" && !looksStreet) score += 22;
+    if (h.kind === "address" && looksStreet) score += 28;
+    if (h.placeId) score += 6;
+    score -= i * 0.4;
+    if (Number.isFinite(h.distanceM)) score -= Math.min((h.distanceM as number) / 1200, 35);
+    if (Number.isFinite(h.lat) && Number.isFinite(h.lng)) {
+      const dlat = (h.lat as number) - bias.lat;
+      const dlng = (h.lng as number) - bias.lon;
+      score -= Math.sqrt(dlat * dlat + dlng * dlng) * 8;
+    }
     return { h, score };
   });
   scored.sort((a, b) => b.score - a.score);
@@ -257,7 +302,7 @@ export async function suggest(q: string, lat?: number, lon?: number): Promise<Su
   if (hasGoogleKey()) {
     try {
       const google = await googleSuggest(query, lat, lon);
-      if (google.length) return google.slice(0, 8);
+      if (google.length) return rankHits(query, google, lat, lon).slice(0, 8);
     } catch (err) {
       console.warn("Google suggest fallback:", err instanceof Error ? err.message : err);
     }
@@ -270,7 +315,7 @@ export async function suggest(q: string, lat?: number, lon?: number): Promise<Su
   const merged = [
     ...(photon.status === "fulfilled" ? photon.value : []),
     ...(nomi.status === "fulfilled" ? nomi.value : []),
-  ].filter((h) => inAustralia(h.lat, h.lng));
+  ].filter((h) => Number.isFinite(h.lat) && Number.isFinite(h.lng) && inAustralia(h.lat as number, h.lng as number));
   return rankHits(query, dedupe(merged), lat, lon).slice(0, 8);
 }
 
@@ -289,13 +334,17 @@ export async function geocode(q: string, lat?: number, lon?: number): Promise<Su
   }
 
   try {
-    const photon = (await photonSuggest(query, lat, lon)).filter((h) => inAustralia(h.lat, h.lng));
+    const photon = (await photonSuggest(query, lat, lon)).filter(
+      (h) => Number.isFinite(h.lat) && Number.isFinite(h.lng) && inAustralia(h.lat as number, h.lng as number),
+    );
     if (photon[0]) return rankHits(query, photon, lat, lon)[0];
   } catch {
     /* fall through */
   }
   try {
-    const nomi = (await nominatimSuggest(query, lat, lon)).filter((h) => inAustralia(h.lat, h.lng));
+    const nomi = (await nominatimSuggest(query, lat, lon)).filter(
+      (h) => Number.isFinite(h.lat) && Number.isFinite(h.lng) && inAustralia(h.lat as number, h.lng as number),
+    );
     return rankHits(query, nomi, lat, lon)[0] || null;
   } catch {
     return null;

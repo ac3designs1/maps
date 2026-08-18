@@ -1,5 +1,5 @@
 import type { SuggestHit } from "./geo.ts";
-import { dedupeSuggestHits } from "./geo.ts";
+import { dedupeSuggestHits, placeLabel, tidyAddr } from "./geo.ts";
 
 const BIZ_TYPES = new Set([
   "establishment",
@@ -82,28 +82,21 @@ function kindFromTypes(types: string[] = []) {
   return types.some((t) => BIZ_TYPES.has(t)) ? "business" : "address";
 }
 
-function fmtPlace(name: string, formatted: string) {
-  const n = name.trim();
-  const f = formatted.trim();
-  if (!f) return n;
-  if (!n) return f;
-  if (f.toLowerCase().startsWith(n.toLowerCase())) return f;
-  return `${n}, ${f}`;
-}
-
 function dedupeHits(hits: SuggestHit[]) {
   return dedupeSuggestHits(hits);
 }
 
-async function googlePlaceDetails(placeId: string): Promise<SuggestHit | null> {
+export async function googlePlace(placeId: string): Promise<SuggestHit | null> {
   const key = googleKey();
-  const id = placeId.replace(/^places\//, "");
+  const id = placeId.replace(/^places\//, "").trim();
+  if (!id) return null;
   const data = (await googleFetch(`https://places.googleapis.com/v1/places/${encodeURIComponent(id)}`, {
     headers: {
       "X-Goog-Api-Key": key,
-      "X-Goog-FieldMask": "displayName,formattedAddress,location,types",
+      "X-Goog-FieldMask": "id,displayName,formattedAddress,location,types",
     },
   })) as {
+    id?: string;
     displayName?: { text?: string };
     formattedAddress?: string;
     location?: { latitude?: number; longitude?: number };
@@ -114,12 +107,15 @@ async function googlePlaceDetails(placeId: string): Promise<SuggestHit | null> {
   const ln = data.location?.longitude;
   if (!Number.isFinite(la) || !Number.isFinite(ln) || !inAustralia(la as number, ln as number)) return null;
   const name = data.displayName?.text || "";
+  const addr = data.formattedAddress || "";
   return {
-    label: fmtPlace(name, data.formattedAddress || ""),
+    placeId: (data.id || id).replace(/^places\//, ""),
+    label: placeLabel(name, addr),
     lat: la as number,
     lng: ln as number,
     kind: kindFromTypes(data.types || []),
-    name,
+    name: name || tidyAddr(addr) || addr,
+    sub: tidyAddr(addr, name),
   };
 }
 
@@ -129,10 +125,13 @@ async function googleAutocomplete(query: string, lat?: number, lon?: number): Pr
   const body = {
     input: query,
     includedRegionCodes: ["au"],
+    languageCode: "en",
+    regionCode: "au",
+    origin: { latitude: bias.lat, longitude: bias.lon },
     locationBias: {
       circle: {
         center: { latitude: bias.lat, longitude: bias.lon },
-        radius: 50000.0,
+        radius: 80000.0,
       },
     },
   };
@@ -142,27 +141,43 @@ async function googleAutocomplete(query: string, lat?: number, lon?: number): Pr
     headers: {
       "Content-Type": "application/json",
       "X-Goog-Api-Key": key,
+      "X-Goog-FieldMask":
+        "suggestions.placePrediction.placeId,suggestions.placePrediction.place,suggestions.placePrediction.structuredFormat,suggestions.placePrediction.types,suggestions.placePrediction.distanceMeters",
     },
     body: JSON.stringify(body),
-  })) as {
+  }, 8000)) as {
     suggestions?: Array<{
       placePrediction?: {
         placeId?: string;
         place?: string;
+        distanceMeters?: number;
         structuredFormat?: { mainText?: { text?: string }; secondaryText?: { text?: string } };
         types?: string[];
       };
     }>;
   };
 
-  const ids = [...new Set(
-    (data.suggestions || [])
-      .map((s) => s.placePrediction?.placeId || s.placePrediction?.place?.replace(/^places\//, ""))
-      .filter(Boolean) as string[],
-  )].slice(0, 6);
-
-  const hits = await Promise.all(ids.map((id) => googlePlaceDetails(id)));
-  return hits.filter((h): h is SuggestHit => !!h);
+  const hits: SuggestHit[] = [];
+  for (const s of data.suggestions || []) {
+    const p = s.placePrediction;
+    if (!p) continue;
+    const id = (p.placeId || p.place || "").replace(/^places\//, "");
+    if (!id) continue;
+    const name = p.structuredFormat?.mainText?.text || "";
+    const sub = tidyAddr(p.structuredFormat?.secondaryText?.text || "", name);
+    if (!name && !sub) continue;
+    hits.push({
+      placeId: id,
+      name: name || sub,
+      sub,
+      label: [name, sub].filter(Boolean).join(", "),
+      lat: null,
+      lng: null,
+      kind: kindFromTypes(p.types || []),
+      distanceM: Number.isFinite(p.distanceMeters) ? p.distanceMeters : undefined,
+    });
+  }
+  return hits.slice(0, 8);
 }
 
 async function googleTextSearch(query: string, lat?: number, lon?: number): Promise<SuggestHit[]> {
@@ -171,10 +186,11 @@ async function googleTextSearch(query: string, lat?: number, lon?: number): Prom
   const body = {
     textQuery: query,
     regionCode: "au",
+    languageCode: "en",
     locationBias: {
       circle: {
         center: { latitude: bias.lat, longitude: bias.lon },
-        radius: 50000.0,
+        radius: 80000.0,
       },
     },
     maxResultCount: 8,
@@ -185,11 +201,12 @@ async function googleTextSearch(query: string, lat?: number, lon?: number): Prom
     headers: {
       "Content-Type": "application/json",
       "X-Goog-Api-Key": key,
-      "X-Goog-FieldMask": "places.displayName,places.formattedAddress,places.location,places.types",
+      "X-Goog-FieldMask": "places.id,places.displayName,places.formattedAddress,places.location,places.types",
     },
     body: JSON.stringify(body),
-  })) as {
+  }, 8000)) as {
     places?: Array<{
+      id?: string;
       displayName?: { text?: string };
       formattedAddress?: string;
       location?: { latitude?: number; longitude?: number };
@@ -203,13 +220,15 @@ async function googleTextSearch(query: string, lat?: number, lon?: number): Prom
     const ln = place.location?.longitude;
     if (!Number.isFinite(la) || !Number.isFinite(ln) || !inAustralia(la as number, ln as number)) continue;
     const name = place.displayName?.text || "";
-    const label = fmtPlace(name, place.formattedAddress || "");
+    const addr = place.formattedAddress || "";
     hits.push({
-      label,
+      placeId: place.id ? String(place.id).replace(/^places\//, "") : undefined,
+      label: placeLabel(name, addr),
       lat: la as number,
       lng: ln as number,
       kind: kindFromTypes(place.types || []),
-      name,
+      name: name || tidyAddr(addr) || addr,
+      sub: tidyAddr(addr, name),
     });
   }
   return hits;
@@ -222,9 +241,21 @@ export async function googleSuggest(q: string, lat?: number, lon?: number): Prom
   const query = q.trim();
   if (query.length < 2) return [];
 
-  const autoHits = await googleAutocomplete(query, lat, lon);
-  const textHits = autoHits.length >= 5 ? [] : await googleTextSearch(query, lat, lon);
-  return dedupeSuggestHits([...autoHits, ...textHits]).slice(0, 8);
+  const [autoHits, textHits] = await Promise.all([
+    googleAutocomplete(query, lat, lon).catch(() => [] as SuggestHit[]),
+    query.length >= 3 ? googleTextSearch(query, lat, lon).catch(() => [] as SuggestHit[]) : Promise.resolve([] as SuggestHit[]),
+  ]);
+  return dedupeHits([...autoHits, ...textHits]).slice(0, 8);
+}
+
+function geocodeName(r: {
+  formatted_address?: string;
+  address_components?: Array<{ long_name?: string; types?: string[] }>;
+}) {
+  const comps = r.address_components || [];
+  const get = (t: string) => comps.find((c) => (c.types || []).includes(t))?.long_name || "";
+  const street = [get("street_number"), get("route")].filter(Boolean).join(" ");
+  return street || get("premise") || get("establishment") || (r.formatted_address || "").split(",")[0];
 }
 
 export async function googleGeocode(q: string, lat?: number, lon?: number): Promise<SuggestHit | null> {
@@ -234,7 +265,6 @@ export async function googleGeocode(q: string, lat?: number, lon?: number): Prom
   const query = q.trim();
   if (query.length < 2) return null;
 
-  const bias = biasPoint(lat, lon);
   const u = new URL("https://maps.googleapis.com/maps/api/geocode/json");
   u.searchParams.set("address", query);
   u.searchParams.set("components", "country:AU");
@@ -244,13 +274,14 @@ export async function googleGeocode(q: string, lat?: number, lon?: number): Prom
     "bounds",
     `${AU.minLat},${AU.minLng}|${AU.maxLat},${AU.maxLng}`,
   );
-  u.searchParams.set("latlng", `${bias.lat},${bias.lon}`);
 
   const data = (await googleFetch(u.toString())) as {
     results?: Array<{
       formatted_address?: string;
+      address_components?: Array<{ long_name?: string; types?: string[] }>;
       geometry?: { location?: { lat?: number; lng?: number } };
       types?: string[];
+      place_id?: string;
     }>;
     status?: string;
   };
@@ -264,17 +295,23 @@ export async function googleGeocode(q: string, lat?: number, lon?: number): Prom
     const la = r.geometry?.location?.lat;
     const ln = r.geometry?.location?.lng;
     if (!Number.isFinite(la) || !Number.isFinite(ln) || !inAustralia(la as number, ln as number)) continue;
+    const name = geocodeName(r);
+    const addr = r.formatted_address || query;
     return {
-      label: r.formatted_address || query,
+      placeId: r.place_id,
+      label: placeLabel(name, addr),
       lat: la as number,
       lng: ln as number,
       kind: kindFromTypes(r.types || []),
-      name: "",
+      name,
+      sub: tidyAddr(addr, name),
     };
   }
 
   const fromSearch = await googleSuggest(query, lat, lon);
-  return fromSearch[0] || null;
+  const first = fromSearch[0];
+  if (first?.placeId && !Number.isFinite(first.lat)) return (await googlePlace(first.placeId)) || null;
+  return first || null;
 }
 
 type LatLng = { lat: number; lng: number };
@@ -709,5 +746,5 @@ export async function googleReverse(lat: number, lon: number): Promise<SuggestHi
   const la = r.geometry.location.lat;
   const ln = r.geometry.location.lng;
   if (!Number.isFinite(la) || !Number.isFinite(ln)) return { label: "Your location", lat, lng: lon, kind: "gps" };
-  return { label: r.formatted_address || "Your location", lat: la as number, lng: ln as number, kind: "gps" };
+  return { label: tidyAddr(r.formatted_address || "") || "Your location", lat: la as number, lng: ln as number, kind: "gps" };
 }

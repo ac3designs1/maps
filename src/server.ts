@@ -6,7 +6,7 @@ import { createReadStream } from "node:fs";
 import { fileURLToPath } from "node:url";
 // Trips are stored per-device in localStorage — no server-side storage.
 import { drivingRoute, geocode, optimizedTrip, reverse, suggest } from "./geo.ts";
-import { hasGoogleKey } from "./google.ts";
+import { googlePlace, hasGoogleKey } from "./google.ts";
 import {
   record, recordError, getStats, startPruneLoop, loadPersisted, flushPersist,
   clearErrors, exportPayload, serverCounters, type EventKind, type RangeKey,
@@ -143,6 +143,19 @@ const server = http.createServer(async (req, res) => {
       const lon = Number(u.searchParams.get("lon"));
       const hits = await suggest(q, Number.isFinite(lat) ? lat : undefined, Number.isFinite(lon) ? lon : undefined);
       return send(res, 200, { hits });
+    }
+
+    if (u.pathname === "/api/place" && req.method === "GET") {
+      const id = (u.searchParams.get("id") || "").replace(/^places\//, "").trim();
+      if (!id) return send(res, 400, { error: "Need place id" });
+      if (!hasGoogleKey()) return send(res, 404, { error: "Place not found" });
+      try {
+        const hit = await googlePlace(id);
+        if (!hit) return send(res, 404, { error: "Place not found" });
+        return send(res, 200, { hit });
+      } catch (err) {
+        return send(res, 502, { error: err instanceof Error ? err.message : "Place lookup failed" });
+      }
     }
 
     if (u.pathname === "/api/geocode" && req.method === "POST") {
