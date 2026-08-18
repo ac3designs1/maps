@@ -104,8 +104,14 @@ input,textarea { outline:none; border:none; -webkit-appearance:none; background:
 .screen-planner {
   position:fixed; inset:0; z-index:30;
   display:none;
+  pointer-events:none;
 }
 .screen-planner.is-open { display:block; }
+.screen-planner .sheet,
+.screen-planner .suggest-box,
+.screen-planner .map-btn {
+  pointer-events:auto;
+}
 
 /* ── List Header ─────────────────────────────────── */
 .list-header {
