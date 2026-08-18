@@ -855,7 +855,7 @@ function moreBody() {
     <button type="button" class="sheet-btn" data-more="dup">Duplicate trip</button>
     <button type="button" class="sheet-btn" data-more="export">Export backup</button>
     <button type="button" class="sheet-btn" data-more="import">Import backup</button>
-    <button type="button" class="sheet-btn" data-more="apple">Open in Apple Maps</button>
+    <button type="button" class="sheet-btn" data-more="waze">Open in Waze</button>
     <button type="button" class="sheet-btn" data-more="google">Open in Google Maps</button>
     <button type="button" class="sheet-btn bad" data-more="del">Delete trip</button>`;
 }
@@ -1027,9 +1027,9 @@ $("sheetBody").addEventListener("click", (e) => {
     openTrip(copy.id);
     toast("Duplicated");
   }
-  if (act === "apple") {
+  if (act === "waze") {
     closeModal();
-    openExternal("apple");
+    openExternal("waze");
   }
   if (act === "google") {
     closeModal();
@@ -1238,18 +1238,15 @@ function goLeg() {
   if (state.navI >= pts.length - 1) return;
   const a = pts[state.navI];
   const b = pts[state.navI + 1];
-  location.href = `https://maps.apple.com/?saddr=${mapsQuery(a)}&daddr=${mapsQuery(b)}&dirflg=d`;
+  location.href = `https://waze.com/ul?ll=${b.lat},${b.lng}&navigate=yes`;
 }
 
 function openExternal(kind) {
   const pts = geocodedStops();
   if (pts.length < 2) return toast("Need a route first");
-  if (kind === "apple") {
-    const dests = pts
-      .slice(1, 11)
-      .map((p) => `daddr=${mapsQuery(p)}`)
-      .join("&");
-    location.href = `https://maps.apple.com/?saddr=${mapsQuery(pts[0])}&${dests}&dirflg=d`;
+  if (kind === "waze") {
+    const dest = pts[pts.length - 1];
+    location.href = `https://waze.com/ul?ll=${dest.lat},${dest.lng}&navigate=yes`;
     return;
   }
   const u = new URL("https://www.google.com/maps/dir/");
