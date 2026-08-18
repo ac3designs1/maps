@@ -277,6 +277,138 @@ export async function googleGeocode(q: string, lat?: number, lon?: number): Prom
   return fromSearch[0] || null;
 }
 
+type LatLng = { lat: number; lng: number };
+
+export type GoogleRoute = {
+  distanceM: number;
+  durationS: number;
+  geometry: [number, number][];
+  legs: { distanceM: number; durationS: number }[];
+};
+
+function avoidParam(opts?: { avoidTolls?: boolean; avoidFerries?: boolean }) {
+  const parts: string[] = [];
+  if (opts?.avoidTolls) parts.push("tolls");
+  if (opts?.avoidFerries) parts.push("ferries");
+  return parts.join("|");
+}
+
+function loc(p: LatLng) {
+  return `${p.lat.toFixed(6)},${p.lng.toFixed(6)}`;
+}
+
+function decodePolyline(str: string): [number, number][] {
+  const pts: [number, number][] = [];
+  let index = 0;
+  let lat = 0;
+  let lng = 0;
+  while (index < str.length) {
+    let b = 0;
+    let shift = 0;
+    let result = 0;
+    do {
+      b = str.charCodeAt(index++) - 63;
+      result |= (b & 0x1f) << shift;
+      shift += 5;
+    } while (b >= 0x20);
+    lat += result & 1 ? ~(result >> 1) : result >> 1;
+    shift = 0;
+    result = 0;
+    do {
+      b = str.charCodeAt(index++) - 63;
+      result |= (b & 0x1f) << shift;
+      shift += 5;
+    } while (b >= 0x20);
+    lng += result & 1 ? ~(result >> 1) : result >> 1;
+    pts.push([lat / 1e5, lng / 1e5]);
+  }
+  return pts;
+}
+
+/** Driving duration seconds between every pair. Null if the key can't do Distance Matrix. */
+export async function googleDurationMatrix(
+  pts: LatLng[],
+  opts?: { avoidTolls?: boolean; avoidFerries?: boolean },
+): Promise<number[][] | null> {
+  const key = googleKey();
+  if (!key || pts.length < 2 || pts.length > 10) return null;
+
+  const u = new URL("https://maps.googleapis.com/maps/api/distancematrix/json");
+  u.searchParams.set("origins", pts.map(loc).join("|"));
+  u.searchParams.set("destinations", pts.map(loc).join("|"));
+  u.searchParams.set("mode", "driving");
+  u.searchParams.set("region", "au");
+  u.searchParams.set("units", "metric");
+  u.searchParams.set("key", key);
+  const avoid = avoidParam(opts);
+  if (avoid) u.searchParams.set("avoid", avoid);
+
+  const data = (await googleFetch(u.toString(), {}, 18000)) as {
+    status?: string;
+    rows?: Array<{ elements?: Array<{ status?: string; duration?: { value?: number } }> }>;
+  };
+  if (data.status && data.status !== "OK") return null;
+  const rows = data.rows || [];
+  if (rows.length !== pts.length) return null;
+  const out: number[][] = [];
+  for (const row of rows) {
+    const line: number[] = [];
+    for (const el of row.elements || []) {
+      const v = el.duration?.value;
+      line.push(el.status === "OK" && Number.isFinite(v) ? (v as number) : 1e12);
+    }
+    if (line.length !== pts.length) return null;
+    out.push(line);
+  }
+  return out;
+}
+
+/** Google Directions for an already-ordered list of stops. */
+export async function googleDrivingRoute(
+  pts: LatLng[],
+  opts?: { avoidTolls?: boolean; avoidFerries?: boolean },
+): Promise<GoogleRoute | null> {
+  const key = googleKey();
+  if (!key || pts.length < 2) return null;
+
+  const origin = pts[0];
+  const dest = pts[pts.length - 1];
+  const mid = pts.slice(1, -1).slice(0, 23);
+
+  const u = new URL("https://maps.googleapis.com/maps/api/directions/json");
+  u.searchParams.set("origin", loc(origin));
+  u.searchParams.set("destination", loc(dest));
+  u.searchParams.set("mode", "driving");
+  u.searchParams.set("region", "au");
+  u.searchParams.set("units", "metric");
+  u.searchParams.set("key", key);
+  if (mid.length) u.searchParams.set("waypoints", mid.map(loc).join("|"));
+  const avoid = avoidParam(opts);
+  if (avoid) u.searchParams.set("avoid", avoid);
+
+  const data = (await googleFetch(u.toString(), {}, 20000)) as {
+    status?: string;
+    error_message?: string;
+    routes?: Array<{
+      overview_polyline?: { points?: string };
+      legs?: Array<{ distance?: { value?: number }; duration?: { value?: number } }>;
+    }>;
+  };
+  if (data.status && data.status !== "OK") return null;
+  const route = data.routes?.[0];
+  if (!route) return null;
+  const legs = (route.legs || []).map((l) => ({
+    distanceM: l.distance?.value || 0,
+    durationS: l.duration?.value || 0,
+  }));
+  return {
+    distanceM: legs.reduce((s, l) => s + l.distanceM, 0),
+    durationS: legs.reduce((s, l) => s + l.durationS, 0),
+    geometry: decodePolyline(route.overview_polyline?.points || ""),
+    legs,
+  };
+}
+
 export async function googleReverse(lat: number, lon: number): Promise<SuggestHit | null> {
   const key = googleKey();
   if (!key) return null;

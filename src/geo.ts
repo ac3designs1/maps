@@ -428,26 +428,23 @@ export async function optimizedTrip(
 ): Promise<RouteResult> {
   if (pts.length < 2) throw new Error("Need two stops");
   if (pts.length > 80) throw new Error("Optimize works up to 80 stops — route still has no cap");
-  const extra = excludeQs(opts);
-  const params = new URLSearchParams({
-    overview: "full",
-    geometries: "geojson",
-    roundtrip: opts.roundtrip ? "true" : "false",
-    source: "first",
-  });
-  params.set("destination", opts.roundtrip || !opts.keepEnds ? "any" : "last");
-  const url = `https://router.project-osrm.org/trip/v1/driving/${coordStr(pts)}?${params}${extra}`;
-  const trip = parseRoute(await getJson(url, 30000));
-  if (!trip.order) return trip;
-  const ordered = trip.order.map((i) => pts[i]).filter(Boolean);
-  if (ordered.length >= 2) {
-    try {
-      const driven = await drivingRoute(opts.roundtrip ? [...ordered, ordered[0]] : ordered, opts);
-      driven.order = trip.order;
-      return driven;
-    } catch {
-      return trip;
+
+  const { bestStopOrder } = await import("./optimize.ts");
+  const order = await bestStopOrder(pts, opts);
+  const ordered = order.map((i) => pts[i]).filter(Boolean);
+  const path = opts.roundtrip && ordered.length ? [...ordered, ordered[0]] : ordered;
+
+  try {
+    const { hasGoogleKey, googleDrivingRoute } = await import("./google.ts");
+    if (hasGoogleKey()) {
+      const g = await googleDrivingRoute(path, opts);
+      if (g?.geometry?.length) return { ...g, order };
     }
+  } catch {
+    /* OSRM fallback */
   }
-  return trip;
+
+  const driven = await drivingRoute(path, opts);
+  driven.order = order;
+  return driven;
 }

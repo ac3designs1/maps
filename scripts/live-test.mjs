@@ -39,16 +39,16 @@ try {
   // Static
   {
     const { status, text } = await req("/");
-    if (status === 200 && text.includes("app.js?v=30") && text.includes("styles.css?v=30")) ok("GET /", "cache v=30");
+    if (status === 200 && text.includes("app.js?v=31") && text.includes("styles.css?v=31")) ok("GET /", "cache v=31");
     else fail("GET /", "status " + status);
   }
   {
-    const { status, text } = await req("/styles.css?v=30");
+    const { status, text } = await req("/styles.css?v=31");
     if (status === 200 && text.includes(".screen-planner") && text.includes("pointer-events:none")) ok("GET styles.css");
     else fail("GET styles.css", "status " + status);
   }
   {
-    const { status, text } = await req("/app.js?v=30");
+    const { status, text } = await req("/app.js?v=31");
     if (status === 200 && text.includes("function pinHereFirst") && text.includes("hereDisplay")) ok("GET app.js");
     else fail("GET app.js", "status " + status);
   }
@@ -163,7 +163,25 @@ try {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        points: [sydney, woll, parra, kato],
+        points: [sydney, kato, woll, parra],
+        optimize: true,
+        keepEnds: false,
+        roundtrip: false,
+      }),
+    });
+    const order = json?.order;
+    if (Array.isArray(order) && order[0] === 0 && order.join() !== "0,1,2,3")
+      ok("optimise reorders a crossed trip", JSON.stringify(order));
+    else fail("optimise reorders a crossed trip", JSON.stringify(order));
+    if (json?.distanceM > 0 && json.geometry?.length) ok("optimise has geometry");
+    else fail("optimise has geometry", "missing");
+  }
+  {
+    const { json } = await req("/api/route", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        points: [sydney, kato, woll, parra],
         optimize: true,
         keepEnds: true,
         roundtrip: false,
@@ -173,8 +191,6 @@ try {
     if (Array.isArray(order) && order[0] === 0 && order[order.length - 1] === 3)
       ok("optimise keepEnds", JSON.stringify(order));
     else fail("optimise keepEnds", JSON.stringify(order));
-    if (json?.distanceM > 0 && json.geometry?.length) ok("optimise has geometry");
-    else fail("optimise has geometry", "missing");
   }
   {
     const { json } = await req("/api/route", {
@@ -280,7 +296,7 @@ try {
   // IDs in HTML exist in JS
   {
     const html = (await req("/")).text;
-    const js = (await req("/app.js?v=30")).text;
+    const js = (await req("/app.js?v=31")).text;
     const ids = [...html.matchAll(/id="([^"]+)"/g)].map(m => m[1]);
     const missing = ids.filter(id => !js.includes('"' + id + '"') && !js.includes("'" + id + "'") && !["mapToggleIcon","mapToggleLabel","navTitle","navSub","continueTitle","continueSub","installTitle","installSub","iosShareWord"].includes(id));
     // map/list structural ids that JS must touch

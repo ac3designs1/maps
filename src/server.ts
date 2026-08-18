@@ -175,7 +175,7 @@ const server = http.createServer(async (req, res) => {
       const roundtrip = !!body.roundtrip;
       const optimize = !!body.optimize;
       if (optimize) serverCounters.optimises++;
-      const keepEnds = body.keepEnds !== false;
+      const keepEnds = !!body.keepEnds;
       try {
         const result = optimize
           ? await optimizedTrip(pts, {
