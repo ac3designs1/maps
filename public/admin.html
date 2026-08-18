@@ -202,6 +202,7 @@
   const $ = (id) => document.getElementById(id);
   let pass = sessionStorage.getItem("trips_admin") || "";
   let timer = 0;
+  let loginGen = 0;
 
   $("out").onclick = () => {
     pass = ""; sessionStorage.removeItem("trips_admin");
@@ -210,21 +211,24 @@
 
   function login(e) {
     e.preventDefault();
-    pass = $("pass").value;
+    const gen = ++loginGen;
+    const attempt = $("pass").value;
     $("gateErr").style.display = "none";
-    refresh().then((ok) => {
+    refresh(attempt).then((ok) => {
+      if (gen !== loginGen) return;
       if (!ok) { $("gateErr").style.display = "block"; pass = ""; return; }
+      pass = attempt;
       sessionStorage.setItem("trips_admin", pass);
       $("gate").style.display = "none";
       $("app").style.display = "block";
-      timer = setInterval(refresh, 8000);
+      timer = setInterval(() => refresh(pass), 8000);
     });
     return false;
   }
 
-  async function refresh() {
+  async function refresh(usePass = pass) {
     try {
-      const res = await fetch("/api/stats", { headers: { Authorization: "Basic " + btoa("admin:" + pass) } });
+      const res = await fetch("/api/stats", { headers: { Authorization: "Basic " + btoa("admin:" + usePass) } });
       if (res.status === 401) return false;
       if (!res.ok) return false;
       paint(await res.json());

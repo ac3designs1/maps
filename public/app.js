@@ -85,8 +85,9 @@ async function api(path, opts = {}) {
   // Support an external AbortController via opts.signal, plus our own timeout.
   const ac  = new AbortController();
   const ext = opts.signal;
+  let timedOut = false;
   if (ext) ext.addEventListener("abort", () => ac.abort(), { once: true });
-  const timer = setTimeout(() => ac.abort(), opts.timeout || 22000);
+  const timer = setTimeout(() => { timedOut = true; ac.abort(); }, opts.timeout || 22000);
   try {
     const res = await fetch(path, {
       ...opts,
@@ -99,7 +100,10 @@ async function api(path, opts = {}) {
     if (!res.ok) throw new Error(data.error || "Something went wrong");
     return data;
   } catch (err) {
-    if (err?.name === "AbortError") throw Object.assign(new Error("cancelled"),{cancelled:true});
+    if (err?.name === "AbortError") {
+      if (timedOut) throw new Error("That took too long. Try again.");
+      throw Object.assign(new Error("cancelled"),{cancelled:true});
+    }
     throw err;
   } finally { clearTimeout(timer); }
 }
@@ -215,6 +219,7 @@ function showTrip() {
   setSnap(S.snap || "mid");
   requestAnimationFrame(() => {
     S.map?.invalidateSize();
+    S.map?.dragging?.enable();
     drawMap(true);
   });
 }
@@ -808,6 +813,7 @@ $("btnMapToggle").onclick = () => {
 
 /* ─── start / nav ─── */
 $("btnStart").onclick = () => {
+  if (geocodedStops().length < 2) return toast("Add at least two places first");
   S.navigating=true; S.navI=0; updateNav(); drawMap(true); goLeg();
   _analytics?.ping("navigate", { stops: geocodedStops().length });
 };
@@ -959,6 +965,7 @@ $("modalBody").addEventListener("click", e => {
       closeModal();
       const prev=JSON.parse(JSON.stringify(S.trip.stops));
       S.trip.stops=[{id:uid(),query:"",label:"",lat:null,lng:null},{id:uid(),query:"",label:"",lat:null,lng:null}];
+      applyLocationToFirstStop();
       syncStops(true); scheduleSave(); scheduleRoute(false);
       toast("Stops cleared",()=>{ S.trip.stops=prev; syncStops(true); scheduleSave(); scheduleRoute(false); });
     },
@@ -1000,6 +1007,7 @@ async function pasteAddresses() {
   try {
     _analytics?.ping("paste", { lines: lines.length });
     const data=await api("/api/geocode",{method:"POST",timeout:60000,body:JSON.stringify({lines,lat:S.here?.lat??S.bias.lat,lng:S.here?.lng??S.bias.lng})});
+    if (!S.trip) return;
     const built=(data.results||[]).map(r=>({id:uid(),query:r.hit?.label||r.query,label:r.hit?.label||r.query,lat:r.hit?.lat??null,lng:r.hit?.lng??null}));
     if (!filledStops().length) { S.trip.stops=built.length>=2?built:[...built,{id:uid(),query:"",label:"",lat:null,lng:null}]; }
     else if (S.trip.roundtrip) S.trip.stops.push(...built);
@@ -1068,6 +1076,7 @@ function scheduleRoute(optimize) {
   S.routeTimer=setTimeout(()=>routeNow(optimize),optimize?40:260);
 }
 async function routeNow(optimize) {
+  if (!S.trip) return;
   const pts=geocodedStops();
   const seq=++S.routeSeq;
   if (pts.length<2) {
@@ -1077,10 +1086,10 @@ async function routeNow(optimize) {
   try {
     const data=await api("/api/route",{method:"POST",timeout:35000,body:JSON.stringify({
       points:pts.map(p=>({lat:p.lat,lng:p.lng})),
-      optimize, roundtrip:S.trip.roundtrip, keepEnds:S.trip.keepEnds!==false,
+      optimize, roundtrip:!!S.trip.roundtrip, keepEnds:S.trip.keepEnds!==false,
       avoidTolls:!!S.trip.avoidTolls, avoidFerries:!!S.trip.avoidFerries,
     })});
-    if (seq!==S.routeSeq) return;
+    if (seq!==S.routeSeq || !S.trip) return;
     if (optimize&&Array.isArray(data.order)&&data.order.length===pts.length) {
       // Reorder only the geocoded stops; leave empty/unresolved stops in place.
       const geocodedIds = new Set(pts.map(p=>p.id));
@@ -1343,6 +1352,7 @@ function importTripFromUrl() {
   if (isIOS) {
     // iOS Safari: show tooltip pointing at Share button in bottom bar
     const tip = $("iosTooltip");
+    if (!tip) return;
     // On iPad the Share button is top-right, so flip the arrow
     const isIPad = /iPad/.test(ua) || (navigator.maxTouchPoints > 1 && /Macintosh/.test(ua));
     if (isIPad) {
@@ -1352,12 +1362,14 @@ function importTripFromUrl() {
       tip.style.left = "auto";
       tip.style.transform = "none";
       const arrow = tip.querySelector(".ios-tooltip-arrow");
-      arrow.style.borderTop = "none";
-      arrow.style.borderBottom = "10px solid rgba(28,28,30,.94)";
-      arrow.style.order = "-1";
+      if (arrow) {
+        arrow.style.borderTop = "none";
+        arrow.style.borderBottom = "10px solid rgba(28,28,30,.94)";
+        arrow.style.order = "-1";
+      }
     }
     setTimeout(() => tip.classList.remove("hidden"), 1200);
-    $("iosClose").addEventListener("click", () => {
+    $("iosClose")?.addEventListener("click", () => {
       tip.classList.add("hidden");
       dismiss(DISMISS_KEY);
     });

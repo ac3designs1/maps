@@ -221,9 +221,7 @@ const server = http.createServer(async (req, res) => {
     // ── Stats API (password protected) ──────────────
     if (u.pathname === "/api/stats" && req.method === "GET") {
       if (!checkAdminAuth(req)) {
-        res.writeHead(401, { "WWW-Authenticate": 'Basic realm="Trips Admin"' });
-        res.end(JSON.stringify({ error: "Unauthorised" }));
-        return;
+        return send(res, 401, { error: "Unauthorised" });
       }
       return send(res, 200, getStats({ googlePlaces: hasGoogleKey() }));
     }
