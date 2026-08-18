@@ -1,5 +1,5 @@
 /* ═══════════════════════════════════════════════════
-   TRIPS  —  v33
+   TRIPS  —  v34
 ═══════════════════════════════════════════════════ */
 
 /* ── Tokens ──────────────────────────────────────── */
@@ -55,7 +55,7 @@
 *,*::before,*::after { box-sizing:border-box; -webkit-tap-highlight-color:transparent; }
 
 html,body {
-  margin:0; height:100%; height:100dvh;
+  margin:0; height:100%;
   font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
   font-size:16px; line-height:1.45;
   color:var(--t1); background:var(--bg);
@@ -96,7 +96,11 @@ input,textarea { outline:none; border:none; -webkit-appearance:none; background:
   background:var(--bg);
   display:flex; flex-direction:column;
   padding-top:var(--sat);
-  padding-bottom:var(--sab);
+  overflow-x:hidden;
+  overflow-y:auto;
+  -webkit-overflow-scrolling:touch;
+  overscroll-behavior-y:contain;
+  touch-action:pan-y;
 }
 .screen-list.is-away {
   display:none;
@@ -186,13 +190,11 @@ input,textarea { outline:none; border:none; -webkit-appearance:none; background:
 
 /* ── Trip list ───────────────────────────────────── */
 .trip-list {
-  margin:0 16px calc(16px + var(--sab)); flex:1; min-height:0;
-  overflow-y:auto; -webkit-overflow-scrolling:touch;
+  margin:0 16px calc(16px + var(--sab));
+  flex:1 0 auto;
   background:var(--card); border-radius:18px;
   box-shadow:var(--s1); border:.5px solid var(--border);
-  scrollbar-width:none;
 }
-.trip-list::-webkit-scrollbar { display:none; }
 .trip-list:empty { background:transparent; box-shadow:none; border:none; }
 
 .trip-row {
@@ -200,8 +202,8 @@ input,textarea { outline:none; border:none; -webkit-appearance:none; background:
   padding:13px 14px; width:100%;
   background:none; text-align:left;
   border-bottom:.5px solid var(--border2);
-  transition:background .08s;
   -webkit-user-select:none; user-select:none;
+  touch-action:pan-y;
 }
 .trip-row:last-child { border-bottom:none; }
 .trip-row:active { background:var(--card2); }
