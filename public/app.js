@@ -67,7 +67,8 @@ function filledStops(trip = S.trip)   { return (trip?.stops||[]).filter(s=>(s.la
 function geocodedStops(trip = S.trip) { return (trip?.stops||[]).filter(s=>Number.isFinite(s.lat)&&Number.isFinite(s.lng)); }
 function titleFromStops(trip) {
   const f = filledStops(trip);
-  if (f.length < 2) return trip.title && trip.title !== "Untitled trip" ? trip.title : "Untitled trip";
+  if (f.length === 0) return trip.title && trip.title !== "Untitled trip" ? trip.title : "Untitled trip";
+  if (f.length === 1) return (f[0].label||f[0].query).split(",")[0];
   return `${(f[0].label||f[0].query).split(",")[0]} → ${(f[f.length-1].label||f[f.length-1].query).split(",")[0]}`;
 }
 
@@ -193,19 +194,20 @@ function dedupeHits(hits) {
 }
 
 /* ─── screens ─── */
+// Use data-hidden attribute (not .hidden class) so CSS slide transitions work
 function showList() {
-  $("listScreen").classList.remove("hidden");
-  $("tripScreen").classList.add("hidden");
+  $("listScreen").removeAttribute("data-hidden");
+  $("tripScreen").setAttribute("data-hidden","");
+  document.activeElement?.blur();
   hideSuggest();
   renderContinue();
 }
 function showTrip() {
-  $("listScreen").classList.add("hidden");
-  $("tripScreen").classList.remove("hidden");
-  setSnap(S.snap||"mid");
-  // Let CSS transition settle then fix map size
+  $("listScreen").setAttribute("data-hidden","");
+  $("tripScreen").removeAttribute("data-hidden");
+  setSnap(S.snap || "mid");
   setTimeout(() => { S.map?.invalidateSize(); drawMap(true); }, 60);
-  requestAnimationFrame(() => { S.map?.invalidateSize(); });
+  requestAnimationFrame(() => S.map?.invalidateSize());
 }
 
 /* ─── snap ─── */
@@ -235,7 +237,7 @@ function renderContinue() {
   if (!card) return;
   const lastId = localStorage.getItem(LAST_KEY);
   const trip = lastId && (S.records||[]).find(t=>t.id===lastId);
-  if (!trip||!$("tripScreen").classList.contains("hidden")) { card.classList.add("hidden"); return; }
+  if (!trip||!$("tripScreen").hasAttribute("data-hidden")) { card.classList.add("hidden"); return; }
   $("continueTitle").textContent = trip.title||"Untitled trip";
   $("continueSub").textContent   = `${filledStops(trip).length} stops`;
   card.onclick = () => openTrip(trip.id);
@@ -292,8 +294,9 @@ function newTrip() {
   buzz();
   const trip = emptyTrip();
   setRecords([trip,...(S.records||readLocal()).filter(t=>t.id!==trip.id)]);
-  S.trip=trip; S.route=null; S.navigating=false;
-  syncStops(true); renderList(); showTrip(); setSnap("full");
+  S.trip=trip; S.route=null; S.navigating=false; nudgeDismissed=false;
+  S.snap="full"; // set before showTrip so setSnap picks it up
+  syncStops(true); renderList(); showTrip();
   setTimeout(()=>$("stopList").querySelector(".stop-input")?.focus(), 240);
 }
 
@@ -407,10 +410,12 @@ function showHereSuggest() {
 function applyHit(hit) {
   const stop = S.trip?.stops.find(s=>s.id===S.focusId);
   if (!stop) return;
-  stop.query=hit.label; stop.label=hit.label; stop.lat=hit.lat; stop.lng=hit.lng;
+  // label = full address (used for geocoding/display); query = what shows in the input
+  const displayVal = hit.name && hit.name !== hit.label ? hit.name : hit.label;
+  stop.query=displayVal; stop.label=hit.label; stop.lat=hit.lat; stop.lng=hit.lng;
   hideSuggest();
   const input = $("stopList").querySelector(`.stop-input[data-id="${stop.id}"]`);
-  if (input) { input.value=hit.label; input.classList.remove("unresolved"); }
+  if (input) { input.value=displayVal; input.classList.remove("unresolved"); }
   updateRowMeta(); scheduleSave(); scheduleRoute(false); buzz();
   // Auto-advance to next empty stop
   const idx = S.trip.stops.findIndex(s=>s.id===stop.id);
@@ -490,21 +495,32 @@ function makeRow(s,i,n) {
 
 function updateRowMeta() {
   if (!S.trip) return;
-  const n = S.trip.stops.length;
-  [...$("stopList").children].forEach((row,i) => {
-    const s = S.trip.stops[i];
-    if (!s) return;
+  const stops = S.trip.stops;
+  const n = stops.length;
+  const domRows = [...$("stopList").children];
+  // Safety: only iterate as far as both DOM and stops arrays go
+  const count = Math.min(domRows.length, n);
+  for (let i = 0; i < count; i++) {
+    const row = domRows[i];
+    const s   = stops[i];
+    if (!s) continue;
     row.className = `stop-row ${stopKind(i,n)}${row.classList.contains("dragging")?" dragging":""}`.trim();
-    row.querySelector(".stop-dot").textContent = stopLabel(i,n);
+    const dot = row.querySelector(".stop-dot");
+    if (dot) dot.textContent = stopLabel(i,n);
     const input = row.querySelector(".stop-input");
-    if (document.activeElement!==input) {
-      const val = s.query||s.label||"";
-      if (input.value!==val) input.value=val;
+    if (input) {
+      if (document.activeElement !== input) {
+        const val = s.query||s.label||"";
+        if (input.value !== val) input.value = val;
+      }
+      input.classList.toggle("unresolved", !!(input.value && !Number.isFinite(s.lat)));
     }
-    input.classList.toggle("unresolved", !!(input.value&&!Number.isFinite(s.lat)));
-    const leg = S.route?.legs?.[i-1];
-    row.querySelector(".leg-meta").textContent = i>0&&leg ? `${fmtDur(leg.durationS)} · ${fmtKm(leg.distanceM)}` : "";
-  });
+    const legEl = row.querySelector(".leg-meta");
+    if (legEl) {
+      const leg = S.route?.legs?.[i-1];
+      legEl.textContent = i>0&&leg ? `${fmtDur(leg.durationS)} · ${fmtKm(leg.distanceM)}` : "";
+    }
+  }
   updateSummary();
   updateNav();
   updateNudge();
@@ -531,6 +547,7 @@ function syncStops(force) {
 
 /* ─── summary bar ─── */
 function updateSummary() {
+  if (!S.trip) return;
   const r = S.route;
   const n = geocodedStops().length;
   const title = $("summaryTime");
@@ -641,10 +658,15 @@ function bindStopInput(input) {
   });
 
   input.addEventListener("keydown", async e => {
+    if (e.key==="Escape") { hideSuggest(); input.blur(); return; }
     if (e.key!=="Enter") return;
     e.preventDefault();
     const q = input.value.trim();
     if (!q) return;
+    // If there's already a result in the suggest box, use the first one
+    const firstHit = ($("suggestBox")._hits||[])[0];
+    if (firstHit) { applyHit(firstHit); return; }
+    clearTimeout(S.suggestTimer);
     try { const hits=await lookup(q); if(hits[0]) applyHit(hits[0]); }
     catch(err) { if(!err.cancelled) toast(err.message); }
   });
@@ -687,6 +709,7 @@ $("stopList").addEventListener("pointerdown", e => {
   const up = () => {
     grip.removeEventListener("pointermove",move);
     grip.removeEventListener("pointerup",up);
+    grip.removeEventListener("pointercancel",up);
     row.classList.remove("dragging");
     const byId = Object.fromEntries(S.trip.stops.map(s=>[s.id,s]));
     S.trip.stops = [...list.querySelectorAll(".stop-row")].map(r=>byId[r.dataset.id]).filter(Boolean);
@@ -694,6 +717,7 @@ $("stopList").addEventListener("pointerdown", e => {
   };
   grip.addEventListener("pointermove",move);
   grip.addEventListener("pointerup",up);
+  grip.addEventListener("pointercancel",up);
 }, {passive:false});
 
 /* ─── action bar ─── */
@@ -767,7 +791,7 @@ $("tripList").addEventListener("click",e=>{
 (()=>{
   const list=$("tripList");
   let sx=0,sy=0,row=null;
-  list.addEventListener("touchstart",e=>{row=e.target.closest(".trip-row"); if(row){sx=e.changedTouches[0].clientX;sy=e.changedTouches[0].clientY;}},{passive:true});
+  list.addEventListener("touchstart",e=>{ row=null; const r=e.target.closest(".trip-row"); if(r){row=r;sx=e.changedTouches[0].clientX;sy=e.changedTouches[0].clientY;}},{passive:true});
   list.addEventListener("touchend",e=>{
     if(!row)return;
     const dx=e.changedTouches[0].clientX-sx, dy=Math.abs(e.changedTouches[0].clientY-sy);
@@ -795,14 +819,15 @@ function pasteBody() {
 }
 
 function pinPickerBody(pinKey) {
-  const pts = filledStops();
-  if (!pts.length) return `<div class="modal-pad"><p class="modal-hint">Add stops to this trip first, then set one as ${pinKey === "home" ? "Home" : "Work"}.</p></div>`;
+  // Only geocoded stops can be saved as pins (need lat/lng)
+  const pts = geocodedStops();
+  if (!pts.length) return `<div class="modal-pad"><p class="modal-hint">Add and select at least one place in this trip first, then set it as ${pinKey === "home" ? "Home" : "Work"}.</p></div>`;
   const label = pinKey === "home" ? "Home" : "Work";
   const rows = pts.map((s, i) => {
     const name = esc((s.label || s.query).split(",")[0]);
     const addr = esc(s.label || s.query);
     return `<button class="mrow" data-pin-save="${pinKey}" data-pin-i="${i}">
-      <span>${name}<br><span style="font-size:13px;color:var(--muted)">${addr}</span></span>
+      <span>${name}<br><span style="font-size:13px;color:var(--t3)">${addr}</span></span>
     </button>`;
   }).join("");
   return `<div class="msec">${rows}</div>
@@ -864,7 +889,7 @@ $("modalBody").addEventListener("click", e => {
   if (pinSave) {
     const key = pinSave.dataset.pinSave;
     const i   = Number(pinSave.dataset.pinI);
-    const s   = filledStops()[i];
+    const s   = geocodedStops()[i];
     if (s) {
       setPin(key, { label: s.label||s.query, lat: s.lat, lng: s.lng });
       closeModal();
@@ -904,8 +929,11 @@ $("modalBody").addEventListener("click", e => {
     del()     {
       const id=S.trip.id, prev=(S.records||readLocal()).slice();
       setRecords(prev.filter(t=>t.id!==id));
-      closeModal(); S.trip=null; showList(); renderList();
-      toast("Trip deleted",()=>{ setRecords(prev); renderList(); });
+      closeModal();
+      S.trip=null; S.route=null; S.navigating=false;
+      $("stopList").innerHTML="";
+      showList(); renderList();
+      toast("Trip deleted",()=>{ setRecords(mergeTrips(prev,S.records||[])); renderList(); });
     },
   };
   handlers[act]?.();
@@ -942,18 +970,29 @@ function shareTrip() {
   const head=S.trip.title&&S.trip.title!=="Untitled trip"?S.trip.title:"Trip";
   const stats=S.route?`${fmtDur(S.route.durationS)} · ${fmtKm(S.route.distanceM)}`:"";
   const payload=encodeURIComponent(JSON.stringify({title:head,stops:pts.map(s=>({label:s.label||s.query,lat:s.lat,lng:s.lng}))}));
-  const link=payload.length<1800?`${location.origin}${location.pathname}?import=${payload}`:"";
-  const text=`${head}\n${stats}\n\n${lines.join("\n")}${link?`\n\n${link}`:""}`;
+  const baseUrl=`${location.origin}${location.pathname.replace(/\/$/, "")}`;
+  const link=payload.length<1800?`${baseUrl}?import=${payload}`:"";
+  const text=`${head}${stats?`\n${stats}`:""}\n\n${lines.join("\n")}${link?`\n\n${link}`:""}`;
   if (navigator.share) { navigator.share({title:head,text,url:link||undefined}).catch(()=>{}); return; }
-  navigator.clipboard?.writeText(text).then(()=>toast(link?"Copied trip + link":"Copied to clipboard"));
+  if (navigator.clipboard) { navigator.clipboard.writeText(text).then(()=>toast(link?"Copied trip + link":"Copied to clipboard")).catch(()=>toast("Couldn't copy")); }
+  else toast("Share not supported on this browser");
 }
 
 /* ─── export / import ─── */
 function exportBackup() {
-  const blob=new Blob([JSON.stringify({trips:S.records||readLocal(),pins:readPins()},null,2)],{type:"application/json"});
+  const json=JSON.stringify({trips:S.records||readLocal(),pins:readPins()},null,2);
+  const filename=`trips-backup-${new Date().toISOString().slice(0,10)}.json`;
+  // Use Web Share API on iOS where anchor download doesn't work
+  if (navigator.share && /iP(hone|ad|od)/.test(navigator.userAgent)) {
+    const file=new File([json],filename,{type:"application/json"});
+    navigator.share({files:[file],title:filename}).catch(()=>{});
+    return;
+  }
+  const blob=new Blob([json],{type:"application/json"});
   const a=document.createElement("a"); a.href=URL.createObjectURL(blob);
-  a.download=`trips-backup-${new Date().toISOString().slice(0,10)}.json`; a.click();
-  URL.revokeObjectURL(a.href); toast("Backup saved");
+  a.download=filename; document.body.appendChild(a); a.click();
+  setTimeout(()=>{ document.body.removeChild(a); URL.revokeObjectURL(a.href); },300);
+  toast("Backup saved");
 }
 function importBackupFile(file) {
   const reader=new FileReader();
@@ -1074,7 +1113,14 @@ function goLeg() {
 function openExternal(kind) {
   const pts=geocodedStops();
   if (pts.length<2) return toast("Need a route first");
-  if (kind==="waze") { const d=pts[pts.length-1]; location.href=`https://waze.com/ul?ll=${d.lat},${d.lng}&navigate=yes`; return; }
+  if (kind==="waze") {
+    // Waze deeplink supports multi-stop via navigate URL with stop params
+    const dest=pts[pts.length-1];
+    const stopParams=pts.slice(1,-1).map((p,i)=>`stop${i+1}_lat=${p.lat}&stop${i+1}_lon=${p.lng}`).join("&");
+    const base=`https://waze.com/ul?ll=${dest.lat},${dest.lng}&navigate=yes`;
+    location.href = stopParams ? `${base}&${stopParams}` : base;
+    return;
+  }
   const u=new URL("https://www.google.com/maps/dir/");
   u.searchParams.set("api","1"); u.searchParams.set("origin",mapsQuery(pts[0]));
   u.searchParams.set("destination",mapsQuery(pts[pts.length-1])); u.searchParams.set("travelmode","driving");

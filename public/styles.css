@@ -99,28 +99,28 @@ input,textarea { outline:none; border:none; -webkit-appearance:none; background:
   z-index:20; background:var(--bg);
   display:flex; flex-direction:column;
   padding-top:var(--sat);
-  transform:translateX(0);
+  transform:translateX(0); opacity:1;
+  pointer-events:auto;
 }
-.screen-list.hidden {
-  transform:translateX(-100%);
-  pointer-events:none; opacity:.6;
-  display:flex !important;
+/* Use data-attr instead of .hidden so display:none doesn't override the transition */
+.screen-list[data-hidden] {
+  transform:translateX(-30%);
+  pointer-events:none; opacity:.0;
 }
 
 /* PLANNER SCREEN */
 .screen-planner {
   z-index:10; pointer-events:none;
+  display:flex; flex-direction:column;
   transform:translateX(100%); opacity:0;
-  display:flex !important; flex-direction:column;
 }
-.screen-planner.hidden {
-  transform:translateX(100%);
-  opacity:0; pointer-events:none;
+.screen-planner:not([data-hidden]) {
+  transform:translateX(0); opacity:1;
 }
-.screen-planner:not(.hidden) {
-  transform:translateX(0); opacity:1; pointer-events:none;
+.screen-planner:not([data-hidden]) > * { pointer-events:auto; }
+.screen-planner[data-hidden] {
+  transform:translateX(100%); opacity:0; pointer-events:none;
 }
-.screen-planner:not(.hidden) > * { pointer-events:auto; }
 
 /* ── List Header ─────────────────────────────────── */
 .list-header {
