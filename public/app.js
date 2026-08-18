@@ -749,9 +749,10 @@ $("btnOptimise").onclick = () => {
   if (!S.trip) return;
   if (geocodedStops().length<3) return toast("Add at least 3 places first");
   $("btnOptimise").classList.add("loading");
+  _analytics?.ping("optimise", { stops: geocodedStops().length });
   scheduleRoute(true);
 };
-$("btnShare").onclick = () => { if (!S.trip) return; shareTrip(); };
+$("btnShare").onclick = () => { if (!S.trip) return; shareTrip(); _analytics?.ping("share"); };
 $("btnMore").onclick  = () => { if (!S.trip) return; openModal("More", moreBody()); };
 
 /* ─── map toggle ─── */
@@ -763,6 +764,7 @@ $("btnMapToggle").onclick = () => {
 /* ─── start / nav ─── */
 $("btnStart").onclick = () => {
   S.navigating=true; S.navI=0; updateNav(); drawMap(true); goLeg();
+  _analytics?.ping("navigate", { stops: geocodedStops().length });
 };
 $("btnNext").onclick = () => {
   const pts = geocodedStops();
@@ -951,6 +953,7 @@ async function pasteAddresses() {
   closeModal();
   toast(`Finding ${lines.length} place${lines.length===1?"":"s"}…`);
   try {
+    _analytics?.ping("paste", { lines: lines.length });
     const data=await api("/api/geocode",{method:"POST",timeout:60000,body:JSON.stringify({lines,lat:S.here?.lat??S.bias.lat,lng:S.here?.lng??S.bias.lng})});
     const built=(data.results||[]).map(r=>({id:uid(),query:r.hit?.label||r.query,label:r.hit?.label||r.query,lat:r.hit?.lat??null,lng:r.hit?.lng??null}));
     if (!filledStops().length) { S.trip.stops=built.length>=2?built:[...built,{id:uid(),query:"",label:"",lat:null,lng:null}]; }
@@ -1045,6 +1048,7 @@ async function routeNow(optimize) {
       syncStops(true); toast("Reordered for a shorter drive");
     }
     S.route=data; S.trip.distanceM=data.distanceM; S.trip.durationS=data.durationS;
+    if (!optimize) _analytics?.ping("route", { stops: pts.length, km: Math.round((data.distanceM||0)/1000) });
     drawMap(true); updateRowMeta(); scheduleSave();
   } catch(err) {
     if (seq!==S.routeSeq||err.cancelled) return;
@@ -1303,6 +1307,43 @@ function importTripFromUrl() {
       $("installBanner").classList.add("hidden");
     });
   }
+})();
+
+/* ─── analytics ─── */
+const _analytics = (function() {
+  // Anonymous session id — regenerated each page load (not stored)
+  const sid = crypto.randomUUID?.() ?? `${Date.now()}-${Math.random().toString(16).slice(2)}`;
+  // Anonymous device fingerprint — hash of stable browser properties, NOT stored in localStorage
+  const rawFp = [navigator.language, screen.width, screen.height, Intl.DateTimeFormat().resolvedOptions().timeZone, navigator.hardwareConcurrency||0].join("|");
+  let did = "";
+  (async () => {
+    try {
+      const buf = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(rawFp));
+      did = [...new Uint8Array(buf)].map(b=>b.toString(16).padStart(2,"0")).join("").slice(0,32);
+    } catch { did = rawFp.slice(0,32).replace(/[^a-z0-9]/g,"x"); }
+  })();
+
+  function ping(kind, meta) {
+    if (!did) return; // wait for fingerprint
+    navigator.sendBeacon?.("/api/ping", JSON.stringify({ sid, did, kind, meta })) ||
+    fetch("/api/ping", { method:"POST", body:JSON.stringify({ sid, did, kind, meta }), keepalive:true }).catch(()=>{});
+  }
+
+  // Session start
+  setTimeout(() => ping("session"), 500);
+
+  // Heartbeat every 4 minutes (keeps session "active")
+  setInterval(() => ping("session"), 4 * 60_000);
+
+  // Global unhandled error reporting (silent — doesn't affect UX)
+  window.addEventListener("error", e => {
+    fetch("/api/error", { method:"POST", body:JSON.stringify({ message: e.message, path: e.filename }), keepalive:true }).catch(()=>{});
+  });
+  window.addEventListener("unhandledrejection", e => {
+    fetch("/api/error", { method:"POST", body:JSON.stringify({ message: String(e.reason?.message||e.reason||"unknown") }), keepalive:true }).catch(()=>{});
+  });
+
+  return { ping };
 })();
 
 /* ─── tap map to dismiss keyboard ─── */

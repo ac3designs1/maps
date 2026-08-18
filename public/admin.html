@@ -1,0 +1,354 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width,initial-scale=1"/>
+  <title>Trips — Admin</title>
+  <style>
+    :root {
+      --bg:    #0E1117;
+      --card:  #161B22;
+      --card2: #1C2128;
+      --bdr:   rgba(255,255,255,.08);
+      --t1:    #E6EDF3;
+      --t2:    #8B949E;
+      --t3:    #484F58;
+      --blue:  #388BFD;
+      --green: #3FB950;
+      --red:   #F85149;
+      --amber: #D29922;
+    }
+    *,*::before,*::after { box-sizing:border-box; margin:0; padding:0; }
+    body {
+      background:var(--bg); color:var(--t1);
+      font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Arial,sans-serif;
+      font-size:14px; line-height:1.5;
+      min-height:100vh;
+    }
+
+    /* ── Auth screen ── */
+    #authScreen {
+      display:flex; flex-direction:column; align-items:center; justify-content:center;
+      min-height:100vh; gap:16px; padding:24px;
+    }
+    #authScreen h1 { font-size:22px; font-weight:700; margin-bottom:4px; }
+    #authScreen p  { color:var(--t2); font-size:14px; }
+    .auth-box {
+      background:var(--card); border:1px solid var(--bdr); border-radius:12px;
+      padding:28px; width:100%; max-width:360px; display:flex; flex-direction:column; gap:14px;
+    }
+    .auth-box input {
+      background:var(--card2); border:1px solid var(--bdr); border-radius:8px;
+      padding:10px 14px; font-size:15px; color:var(--t1); width:100%; outline:none;
+      transition:border-color .15s;
+    }
+    .auth-box input:focus { border-color:var(--blue); }
+    .auth-box button {
+      background:var(--blue); color:#fff; border:none; border-radius:8px;
+      padding:11px; font-size:15px; font-weight:600; cursor:pointer;
+      transition:opacity .1s;
+    }
+    .auth-box button:hover { opacity:.88; }
+    #authError { color:var(--red); font-size:13px; display:none; }
+
+    /* ── Dashboard ── */
+    #dashboard { display:none; }
+    header {
+      background:var(--card); border-bottom:1px solid var(--bdr);
+      padding:14px 24px; display:flex; align-items:center; justify-content:space-between;
+      position:sticky; top:0; z-index:10;
+    }
+    header h1 { font-size:17px; font-weight:700; }
+    .header-right { display:flex; align-items:center; gap:14px; }
+    .live-dot {
+      width:8px; height:8px; border-radius:50%; background:var(--green);
+      animation:pulse 2s ease-in-out infinite;
+    }
+    @keyframes pulse { 0%,100%{opacity:1;} 50%{opacity:.3;} }
+    .refresh-note { color:var(--t2); font-size:12px; }
+    .btn-logout {
+      background:none; border:1px solid var(--bdr); border-radius:6px;
+      color:var(--t2); padding:5px 10px; cursor:pointer; font-size:12px;
+      transition:background .1s;
+    }
+    .btn-logout:hover { background:var(--card2); }
+
+    main { padding:24px; max-width:1200px; margin:0 auto; }
+
+    /* ── Stat cards ── */
+    .stat-grid {
+      display:grid; grid-template-columns:repeat(auto-fit, minmax(180px,1fr)); gap:14px; margin-bottom:24px;
+    }
+    .stat-card {
+      background:var(--card); border:1px solid var(--bdr); border-radius:12px;
+      padding:18px 20px;
+    }
+    .stat-label { font-size:12px; color:var(--t2); font-weight:600; letter-spacing:.04em; text-transform:uppercase; margin-bottom:8px; }
+    .stat-value { font-size:32px; font-weight:800; letter-spacing:-.04em; line-height:1; }
+    .stat-value.green { color:var(--green); }
+    .stat-value.blue  { color:var(--blue); }
+    .stat-value.amber { color:var(--amber); }
+    .stat-sub { font-size:12px; color:var(--t2); margin-top:6px; }
+
+    /* ── Chart ── */
+    .section { background:var(--card); border:1px solid var(--bdr); border-radius:12px; padding:20px; margin-bottom:20px; }
+    .section h2 { font-size:14px; font-weight:700; color:var(--t2); text-transform:uppercase; letter-spacing:.06em; margin-bottom:16px; }
+    .chart-wrap { overflow-x:auto; }
+    .chart { display:flex; align-items:flex-end; gap:3px; height:100px; min-width:600px; }
+    .bar-group { flex:1; display:flex; flex-direction:column; align-items:center; gap:2px; cursor:default; }
+    .bar-stack { width:100%; display:flex; flex-direction:column-reverse; align-items:center; justify-content:flex-end; gap:1px; height:80px; }
+    .bar { width:100%; border-radius:3px 3px 0 0; min-height:1px; transition:opacity .1s; }
+    .bar.sessions { background:var(--blue); }
+    .bar.routes   { background:var(--green); }
+    .bar-label { font-size:9px; color:var(--t3); white-space:nowrap; }
+    .chart-legend { display:flex; gap:16px; margin-top:10px; }
+    .legend-item { display:flex; align-items:center; gap:6px; font-size:12px; color:var(--t2); }
+    .legend-dot { width:10px; height:10px; border-radius:2px; }
+
+    /* ── Event breakdown ── */
+    .event-grid { display:grid; grid-template-columns:repeat(auto-fit, minmax(140px,1fr)); gap:10px; }
+    .event-card {
+      background:var(--card2); border-radius:8px; padding:12px 14px;
+      display:flex; flex-direction:column; gap:4px;
+    }
+    .event-name { font-size:12px; color:var(--t2); font-weight:600; }
+    .event-count { font-size:22px; font-weight:800; }
+
+    /* ── Server stats ── */
+    .server-grid { display:grid; grid-template-columns:repeat(auto-fit, minmax(120px,1fr)); gap:10px; }
+    .server-item { background:var(--card2); border-radius:8px; padding:10px 14px; }
+    .server-item .label { font-size:11px; color:var(--t3); font-weight:600; text-transform:uppercase; }
+    .server-item .val   { font-size:18px; font-weight:700; margin-top:2px; }
+
+    /* ── Error log ── */
+    .error-list { display:flex; flex-direction:column; gap:6px; max-height:280px; overflow-y:auto; }
+    .error-row {
+      background:var(--card2); border-radius:8px; padding:10px 12px;
+      display:flex; gap:10px; align-items:flex-start;
+    }
+    .error-badge {
+      font-size:10px; font-weight:700; border-radius:4px; padding:2px 6px; flex-shrink:0;
+      background:rgba(248,81,73,.15); color:var(--red);
+    }
+    .error-badge.client { background:rgba(210,153,34,.15); color:var(--amber); }
+    .error-msg { font-size:13px; flex:1; min-width:0; word-break:break-all; }
+    .error-time { font-size:11px; color:var(--t3); flex-shrink:0; }
+    .no-errors { color:var(--t2); font-size:13px; padding:8px 0; }
+
+    /* ── Footer ── */
+    .footer { color:var(--t3); font-size:12px; text-align:center; padding:24px 0 16px; }
+  </style>
+</head>
+<body>
+
+<!-- Auth screen -->
+<div id="authScreen">
+  <h1>🗺 Trips Admin</h1>
+  <p>Enter your admin password to view the dashboard</p>
+  <div class="auth-box">
+    <input id="passInput" type="password" placeholder="Admin password" autocomplete="current-password"/>
+    <button id="loginBtn">Sign in</button>
+    <div id="authError">Incorrect password</div>
+  </div>
+</div>
+
+<!-- Dashboard -->
+<div id="dashboard">
+  <header>
+    <h1>🗺 Trips — Live Dashboard</h1>
+    <div class="header-right">
+      <div class="live-dot"></div>
+      <span class="refresh-note" id="refreshNote">Refreshing every 15s</span>
+      <button class="btn-logout" id="logoutBtn">Sign out</button>
+    </div>
+  </header>
+
+  <main>
+    <!-- KPI cards -->
+    <div class="stat-grid">
+      <div class="stat-card">
+        <div class="stat-label">Active now</div>
+        <div class="stat-value green" id="kActiveSessions">—</div>
+        <div class="stat-sub">Sessions in last 5 min</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-label">Sessions today</div>
+        <div class="stat-value blue" id="kSessions24h">—</div>
+        <div class="stat-sub">Last 24 hours</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-label">Unique devices</div>
+        <div class="stat-value" id="kDevices24h">—</div>
+        <div class="stat-sub">Last 24 hours</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-label">Total events</div>
+        <div class="stat-value" id="kEvents24h">—</div>
+        <div class="stat-sub">Last 24 hours</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-label">Routes calculated</div>
+        <div class="stat-value amber" id="kRoutes">—</div>
+        <div class="stat-sub">Since last deploy</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-label">Uptime</div>
+        <div class="stat-value" id="kUptime" style="font-size:20px;letter-spacing:-.02em">—</div>
+        <div class="stat-sub">Server uptime</div>
+      </div>
+    </div>
+
+    <!-- Hourly chart -->
+    <div class="section">
+      <h2>Activity — last 24 hours</h2>
+      <div class="chart-wrap">
+        <div class="chart" id="hourlyChart"></div>
+      </div>
+      <div class="chart-legend">
+        <div class="legend-item"><span class="legend-dot" style="background:var(--blue)"></span>Sessions</div>
+        <div class="legend-item"><span class="legend-dot" style="background:var(--green)"></span>Routes</div>
+      </div>
+    </div>
+
+    <!-- Event breakdown -->
+    <div class="section">
+      <h2>Event breakdown (24 h)</h2>
+      <div class="event-grid" id="eventGrid"></div>
+    </div>
+
+    <!-- Server counters -->
+    <div class="section">
+      <h2>Server (since last deploy)</h2>
+      <div class="server-grid" id="serverGrid"></div>
+    </div>
+
+    <!-- Error log -->
+    <div class="section">
+      <h2>Recent errors (last 50)</h2>
+      <div class="error-list" id="errorList"></div>
+    </div>
+
+    <div class="footer" id="footer"></div>
+  </main>
+</div>
+
+<script>
+  let pass = "";
+  let refreshTimer = null;
+
+  const $id = id => document.getElementById(id);
+
+  // ── Auth ──────────────────────────────────────────
+  $id("passInput").addEventListener("keydown", e => { if(e.key==="Enter") login(); });
+  $id("loginBtn").addEventListener("click", login);
+  $id("logoutBtn").addEventListener("click", logout);
+
+  async function login() {
+    pass = $id("passInput").value;
+    $id("authError").style.display = "none";
+    const ok = await loadStats();
+    if (ok) {
+      $id("authScreen").style.display = "none";
+      $id("dashboard").style.display = "block";
+      refreshTimer = setInterval(loadStats, 15_000);
+    } else {
+      $id("authError").style.display = "block";
+      pass = "";
+    }
+  }
+
+  function logout() {
+    pass = "";
+    clearInterval(refreshTimer);
+    $id("dashboard").style.display = "none";
+    $id("authScreen").style.display = "flex";
+    $id("passInput").value = "";
+  }
+
+  // ── Fetch stats ───────────────────────────────────
+  async function loadStats() {
+    try {
+      const res = await fetch("/api/stats", {
+        headers: { Authorization: "Basic " + btoa("admin:" + pass) }
+      });
+      if (res.status === 401) return false;
+      if (!res.ok) return false;
+      const d = await res.json();
+      render(d);
+      return true;
+    } catch { return false; }
+  }
+
+  // ── Render ────────────────────────────────────────
+  function render(d) {
+    $id("kActiveSessions").textContent = d.activeSessions;
+    $id("kSessions24h").textContent    = d.uniqueSessions24h;
+    $id("kDevices24h").textContent     = d.uniqueDevices24h;
+    $id("kEvents24h").textContent      = d.totalEvents24h;
+    $id("kRoutes").textContent         = d.server?.routes || 0;
+    $id("kUptime").textContent         = d.uptime || "—";
+
+    // Hourly chart
+    const hourly = d.hourly || [];
+    const maxS = Math.max(1, ...hourly.map(h => h.sessions));
+    const maxR = Math.max(1, ...hourly.map(h => h.routes));
+    const maxVal = Math.max(maxS, maxR);
+    $id("hourlyChart").innerHTML = hourly.map(h => {
+      const sh = Math.round((h.sessions / maxVal) * 76);
+      const rh = Math.round((h.routes   / maxVal) * 76);
+      return `<div class="bar-group" title="${h.hour}\nSessions: ${h.sessions}\nRoutes: ${h.routes}">
+        <div class="bar-stack">
+          ${sh ? `<div class="bar sessions" style="height:${sh}px"></div>` : ""}
+          ${rh ? `<div class="bar routes"   style="height:${rh}px"></div>` : ""}
+        </div>
+        <div class="bar-label">${h.hour.slice(0,-3)}</div>
+      </div>`;
+    }).join("");
+
+    // Event breakdown
+    const events = d.byKind || {};
+    const eventOrder = ["session","route","optimise","navigate","share","paste","error"];
+    const eventColors = { session:"var(--blue)", route:"var(--green)", optimise:"var(--amber)", navigate:"var(--green)", share:"#A371F7", paste:"#79C0FF", error:"var(--red)" };
+    $id("eventGrid").innerHTML = eventOrder.map(k => {
+      if (!(k in events) && k !== "session") return "";
+      const count = events[k] || 0;
+      const color = eventColors[k] || "var(--t1)";
+      return `<div class="event-card">
+        <div class="event-name">${k}</div>
+        <div class="event-count" style="color:${color}">${count}</div>
+      </div>`;
+    }).join("");
+
+    // Server counters
+    const sv = d.server || {};
+    const serverKeys = { requests:"Requests", suggests:"Suggests", geocodes:"Geocodes", routes:"Routes", optimises:"Optimises", errors:"Errors" };
+    $id("serverGrid").innerHTML = Object.entries(serverKeys).map(([k,label]) => {
+      const isErr = k === "errors";
+      return `<div class="server-item">
+        <div class="label">${label}</div>
+        <div class="val" style="${isErr && sv[k]>0 ? "color:var(--red)" : ""}">${sv[k] || 0}</div>
+      </div>`;
+    }).join("");
+
+    // Error log
+    const errs = d.recentErrors || [];
+    if (!errs.length) {
+      $id("errorList").innerHTML = `<div class="no-errors">✓ No errors in the last 24 hours</div>`;
+    } else {
+      $id("errorList").innerHTML = errs.map(e => `
+        <div class="error-row">
+          <span class="error-badge ${e.source}">${e.source}</span>
+          <span class="error-msg">${escHtml(e.message)}${e.path ? `<br><span style="color:var(--t3);font-size:11px">${escHtml(e.path)}</span>` : ""}</span>
+          <span class="error-time">${e.time}</span>
+        </div>`).join("");
+    }
+
+    $id("footer").textContent = `Last updated ${d.generatedAt} · Auto-refresh every 15s`;
+  }
+
+  function escHtml(s) {
+    return String(s||"").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/"/g,"&quot;");
+  }
+</script>
+</body>
+</html>

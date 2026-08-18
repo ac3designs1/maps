@@ -7,6 +7,10 @@ import { fileURLToPath } from "node:url";
 // Trips are stored per-device in localStorage — no server-side storage.
 import { drivingRoute, geocode, optimizedTrip, reverse, suggest } from "./geo.ts";
 import { hasGoogleKey } from "./google.ts";
+import {
+  record, recordError, getStats, startPruneLoop,
+  serverCounters, type EventKind,
+} from "./analytics.ts";
 
 const root = path.join(path.dirname(fileURLToPath(import.meta.url)), "..");
 const pub = path.join(root, "public");
@@ -81,7 +85,18 @@ async function staticFile(urlPath: string, res: http.ServerResponse) {
 }
 
 
+const ADMIN_PASS = process.env.ADMIN_PASS || "trips-admin";
+
+function checkAdminAuth(req: http.IncomingMessage): boolean {
+  const auth = req.headers.authorization || "";
+  if (!auth.startsWith("Basic ")) return false;
+  const decoded = Buffer.from(auth.slice(6), "base64").toString("utf8");
+  const [, pass] = decoded.split(":");
+  return pass === ADMIN_PASS;
+}
+
 const server = http.createServer(async (req, res) => {
+  serverCounters.requests++;
   try {
     const u = new URL(req.url || "/", `http://${req.headers.host || "localhost"}`);
     if (req.method === "OPTIONS") {
@@ -111,6 +126,7 @@ const server = http.createServer(async (req, res) => {
     }
 
     if (u.pathname === "/api/suggest" && req.method === "GET") {
+      serverCounters.suggests++;
       const q = u.searchParams.get("q") || "";
       const lat = Number(u.searchParams.get("lat"));
       const lon = Number(u.searchParams.get("lon"));
@@ -149,6 +165,7 @@ const server = http.createServer(async (req, res) => {
     }
 
     if (u.pathname === "/api/route" && req.method === "POST") {
+      serverCounters.routes++;
       const body = await readBody(req);
       const pts = (body.points || []).filter(
         (p: { lat?: number; lng?: number }) => Number.isFinite(p.lat) && Number.isFinite(p.lng),
@@ -156,6 +173,7 @@ const server = http.createServer(async (req, res) => {
       if (pts.length < 2) return send(res, 400, { error: "Add at least two places" });
       const roundtrip = !!body.roundtrip;
       const optimize = !!body.optimize;
+      if (optimize) serverCounters.optimises++;
       const keepEnds = body.keepEnds !== false;
       try {
         const result = optimize
@@ -172,12 +190,41 @@ const server = http.createServer(async (req, res) => {
         return send(res, 200, result);
       } catch (err) {
         const raw = err instanceof Error ? err.message : String(err);
+        recordError("server", raw, "/api/route");
         return send(res, 502, {
           error: /busy|abort|timeout|fetch|ECONN|Upstream/i.test(raw)
             ? "Couldn't build the drive. Try again."
             : raw,
         });
       }
+    }
+
+    // ── Analytics ping (client events) ──────────────
+    if (u.pathname === "/api/ping" && req.method === "POST") {
+      const body = await readBody(req);
+      const sid  = String(body.sid  || "").slice(0, 64);
+      const did  = String(body.did  || "").slice(0, 64);
+      const kind = String(body.kind || "session") as EventKind;
+      const meta = body.meta && typeof body.meta === "object" ? body.meta as Record<string, unknown> : undefined;
+      if (sid && did) record(kind, sid, did, meta);
+      return send(res, 200, { ok: true });
+    }
+
+    // ── Client error reporting ───────────────────────
+    if (u.pathname === "/api/error" && req.method === "POST") {
+      const body = await readBody(req);
+      recordError("client", String(body.message || "unknown"), String(body.path || ""));
+      return send(res, 200, { ok: true });
+    }
+
+    // ── Stats API (password protected) ──────────────
+    if (u.pathname === "/api/stats" && req.method === "GET") {
+      if (!checkAdminAuth(req)) {
+        res.writeHead(401, { "WWW-Authenticate": 'Basic realm="Trips Admin"' });
+        res.end(JSON.stringify({ error: "Unauthorised" }));
+        return;
+      }
+      return send(res, 200, getStats());
     }
 
     // Trip CRUD — trips live on-device (localStorage). Server returns empty stubs.
@@ -196,6 +243,7 @@ const server = http.createServer(async (req, res) => {
   }
 });
 
+startPruneLoop();
 server.keepAliveTimeout = 65_000;
 server.headersTimeout = 70_000;
 server.listen(PORT, "0.0.0.0", () => {
