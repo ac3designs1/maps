@@ -6,16 +6,16 @@
   <meta name="robots" content="noindex"/>
   <meta name="apple-mobile-web-app-capable" content="yes"/>
   <meta name="mobile-web-app-capable" content="yes"/>
-  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent"/>
+  <meta name="apple-mobile-web-app-status-bar-style" content="default"/>
   <meta name="apple-mobile-web-app-title" content="Ops"/>
-  <meta name="theme-color" content="#ffffff" media="(prefers-color-scheme:light)"/>
-  <meta name="theme-color" content="#111113" media="(prefers-color-scheme:dark)"/>
+  <meta name="theme-color" content="#F2F2F7" media="(prefers-color-scheme:light)"/>
+  <meta name="theme-color" content="#000000" media="(prefers-color-scheme:dark)"/>
   <meta name="color-scheme" content="light dark"/>
   <title>Trips · Ops</title>
   <style>
     :root {
       --blue:#1A73E8; --green:#0F9D58; --red:#EA4335; --amber:#FBBC04; --violet:#7B61FF;
-      --bg:#F1F3F4; --card:#fff; --card2:#F1F3F4; --card3:#E8EAED;
+      --bg:#F2F2F7; --card:#fff; --card2:#EFEFF4; --card3:#E5E5EA;
       --border:rgba(0,0,0,.09); --border2:rgba(0,0,0,.05);
       --t1:#202124; --t2:#5F6368; --t3:#9AA0A6;
       --s1:0 1px 3px rgba(60,64,67,.18),0 2px 8px rgba(60,64,67,.10);
@@ -24,7 +24,7 @@
     }
     @media (prefers-color-scheme:dark) {
       :root {
-        --bg:#111213; --card:#1E2022; --card2:#28292C; --card3:#323437;
+        --bg:#000000; --card:#1C1C1E; --card2:#2C2C2E; --card3:#3A3A3C;
         --border:rgba(255,255,255,.10); --border2:rgba(255,255,255,.05);
         --t1:#E8EAED; --t2:#9AA0A6; --t3:#5F6368;
         --s1:0 1px 3px rgba(0,0,0,.5),0 2px 8px rgba(0,0,0,.35);
@@ -80,7 +80,7 @@
     }
     .eyebrow { margin:0; font-size:11px; font-weight:700; letter-spacing:.12em; text-transform:uppercase; color:var(--blue); }
     .top h1 { margin:4px 0 0; font-size:32px; font-weight:800; letter-spacing:-.04em; line-height:1; }
-    .live { display:flex; align-items:center; gap:6px; color:var(--green); font-size:13px; font-weight:700; padding-bottom:4px; }
+    .live { display:flex; align-items:center; gap:6px; color:var(--green); font-size:13px; font-weight:700; padding-bottom:4px; cursor:pointer; }
     .dot { width:8px; height:8px; border-radius:50%; background:var(--green); box-shadow:0 0 0 4px rgba(15,157,88,.18); animation:pulse 2s ease infinite; }
     .live.pause { color:var(--t3); }
     .live.pause .dot { background:var(--t3); box-shadow:none; animation:none; }
@@ -133,7 +133,7 @@
     .hitem { background:var(--card2); border-radius:12px; padding:10px 12px; }
     .hitem .l { font-size:10px; color:var(--t3); text-transform:uppercase; letter-spacing:.06em; font-weight:700; }
     .hitem .v { font-size:14px; font-weight:700; margin-top:2px; word-break:break-word; }
-    .ok { color:var(--green); } .bad { color:var(--red); }
+    .ok { color:var(--green); } .bad { color:var(--red); } .warn { color:#B8860B; }
 
     .feed, .users, .errs { max-height:340px; overflow:auto; -webkit-overflow-scrolling:touch; }
     .ev, .ur, .er {
@@ -278,7 +278,7 @@
 
       <div class="card">
         <h2>Options</h2>
-        <button class="row-btn" id="btnLive" type="button">Auto-refresh <span id="liveLabel">On · 5s</span></button>
+        <button class="row-btn" id="btnLive" type="button">Auto-refresh <span class="toggle" id="liveToggle"><i></i></span></button>
         <button class="row-btn" id="btnExport" type="button">Export JSON backup <span>Download</span></button>
         <button class="row-btn" id="out" type="button">Sign out <span></span></button>
       </div>
@@ -313,8 +313,9 @@
   function setLiveUi() {
     $("livePill").classList.toggle("pause", !live);
     $("livePill").innerHTML = live ? `<span class="dot"></span> Live` : `<span class="dot"></span> Paused`;
-    $("liveLabel").textContent = live ? "On · 5s" : "Off";
+    $("liveToggle")?.classList.toggle("on", live);
   }
+  $("livePill").onclick = () => $("btnLive").click();
   $("btnLive").onclick = () => {
     live = !live;
     sessionStorage.setItem("trips_ops_live", live ? "1" : "0");
@@ -326,14 +327,16 @@
 
   $("btnExport").onclick = async () => {
     if (!pass) return;
-    const res = await fetch("/api/admin/export", { headers: { Authorization: "Basic " + btoa("admin:" + pass) } });
-    if (!res.ok) return;
-    const blob = await res.blob();
-    const a = document.createElement("a");
-    a.href = URL.createObjectURL(blob);
-    a.download = "trips-ops.json";
-    a.click();
-    setTimeout(() => URL.revokeObjectURL(a.href), 2000);
+    try {
+      const res = await fetch("/api/admin/export", { headers: { Authorization: "Basic " + btoa("admin:" + pass) } });
+      if (!res.ok) return;
+      const blob = await res.blob();
+      const a = document.createElement("a");
+      a.href = URL.createObjectURL(blob);
+      a.download = "trips-ops.json";
+      a.click();
+      setTimeout(() => URL.revokeObjectURL(a.href), 2000);
+    } catch {}
   };
 
   $("btnClearErr").onclick = async () => {
@@ -474,7 +477,7 @@
       : `<div class="empty">No errors stored.</div>`;
 
     const h = d.health || {};
-    const places = h.googlePlaces ? ["Places API", "Connected", "ok"] : ["Places API", "OSM fallback", "bad"];
+    const places = h.googlePlaces ? ["Places API", "Connected", "ok"] : ["Places API", "OSM fallback", "warn"];
     $("health").innerHTML = [
       ["Uptime", h.uptime || "—"],
       ["Restarts", h.bootCount ?? "—"],

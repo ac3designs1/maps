@@ -176,6 +176,9 @@ function pinHit(key) {
 }
 function setPin(key,hit) { const p=readPins(); p[key]={label:hit.label,lat:hit.lat,lng:hit.lng}; writePins(p); }
 function rememberLast(id) { try { if(id) localStorage.setItem(LAST_KEY,id); } catch {} }
+function forgetLast(id) {
+  try { if (!id || localStorage.getItem(LAST_KEY)===id) localStorage.removeItem(LAST_KEY); } catch {}
+}
 
 /* ─── trip summaries ─── */
 function summarize(t) {
@@ -198,7 +201,7 @@ function mergeTrips(a,b) {
 }
 function emptyTrip() {
   const now = Date.now();
-  return { id:uid(), title:"Untitled trip", roundtrip:false, keepEnds:false,
+  return { id:uid(), title:"Untitled trip", roundtrip:false,
     avoidTolls:false, avoidFerries:false, starred:false,
     createdAt:now, updatedAt:now,
     stops: [{id:uid(),query:"",label:"",lat:null,lng:null},{id:uid(),query:"",label:"",lat:null,lng:null}] };
@@ -489,6 +492,18 @@ function showHereSuggest() {
 function applyHit(hit) {
   const stop = S.trip?.stops.find(s=>s.id===S.focusId);
   if (!stop) return;
+  if (isHereStop(stop) && !hit.here) {
+    const next = S.trip.stops.find((s,i)=>i>0 && !isHereStop(s) && !(s.label||s.query||"").trim())
+      || S.trip.stops.find((s,i)=>i>0 && !isHereStop(s));
+    if (next) {
+      S.focusId = next.id;
+      applyHit(hit);
+      return;
+    }
+    toast("Your location stays as the start");
+    hideSuggest();
+    return;
+  }
   const isHere = !!hit.here;
   const displayVal = isHere ? hereDisplay() : (hit.name && hit.name !== hit.label ? hit.name : hit.label);
   stop.query = displayVal;
@@ -979,7 +994,18 @@ document.addEventListener("keydown", e => {
 });
 
 /* ─── search ─── */
-$("tripSearch").addEventListener("input",e=>{ S.filter=e.target.value; renderList(); });
+$("tripSearch").addEventListener("input",e=>{
+  S.filter=e.target.value;
+  $("searchClear")?.classList.toggle("hidden", !S.filter.trim());
+  renderList();
+});
+$("searchClear").onclick = () => {
+  $("tripSearch").value = "";
+  S.filter = "";
+  $("searchClear").classList.add("hidden");
+  renderList();
+  $("tripSearch").focus();
+};
 $("btnNew").onclick      = newTrip;
 $("btnEmptyNew").onclick = newTrip;
 $("tripList").addEventListener("click",e=>{
@@ -999,8 +1025,10 @@ $("tripList").addEventListener("click",e=>{
       const id=row.dataset.id;
       const prev=(S.records||[]).slice();
       setRecords(prev.filter(t=>t.id!==id));
+      forgetLast(id);
       renderList();
       toast("Trip deleted",()=>{setRecords(prev);renderList();});
+      _analytics?.ping("delete");
     }
     row=null;
   },{passive:true});
@@ -1129,6 +1157,7 @@ $("modalBody").addEventListener("click", e => {
     del()     {
       const id=S.trip.id, prev=(S.records||readLocal()).slice();
       setRecords(prev.filter(t=>t.id!==id));
+      forgetLast(id);
       closeModal();
       S.trip=null; S.route=null; S.navigating=false;
       $("stopList").innerHTML="";
@@ -1197,7 +1226,10 @@ function exportBackup() {
   // Use Web Share API on iOS where anchor download doesn't work
   if (navigator.share && /iP(hone|ad|od)/.test(navigator.userAgent)) {
     const file=new File([json],filename,{type:"application/json"});
-    navigator.share({files:[file],title:filename}).catch(()=>{});
+    navigator.share({files:[file],title:filename}).catch(err=>{
+      if (err && err.name === "AbortError") return;
+      toast("Couldn't share backup");
+    });
     return;
   }
   const blob=new Blob([json],{type:"application/json"});
@@ -1213,7 +1245,7 @@ function importBackupFile(file) {
       const data=JSON.parse(String(reader.result||"{}"));
       const incoming=Array.isArray(data.trips)?data.trips:data.stops?[data]:[];
       if (!incoming.length) return toast("No trips in file");
-      const norm=incoming.map(t=>({...emptyTrip(),...t,id:uid(),stops:(t.stops||[]).map(s=>({id:uid(),query:s.label||s.query||"",label:s.label||s.query||"",lat:s.lat??null,lng:s.lng??null})),updatedAt:Date.now(),createdAt:t.createdAt||Date.now()}));
+      const norm=incoming.map(t=>({...emptyTrip(),...t,id:uid(),stops:(t.stops||[]).map(s=>({id:uid(),query:s.label||s.query||"",label:s.label||s.query||"",lat:s.lat??null,lng:s.lng??null,here:!!s.here||String(s.query||s.label||"").toLowerCase()==="your location"})),updatedAt:Date.now(),createdAt:t.createdAt||Date.now()}));
       if (data.pins&&typeof data.pins==="object") writePins({...readPins(),...data.pins});
       setRecords(mergeTrips(norm,S.records||readLocal())); renderList();
       toast(`Imported ${norm.length} trip${norm.length===1?"":"s"}`);

@@ -1,5 +1,5 @@
 /* ═══════════════════════════════════════════════════
-   TRIPS  —  v37
+   TRIPS  —  v38
 ═══════════════════════════════════════════════════ */
 
 /* ── Tokens ──────────────────────────────────────── */
@@ -29,7 +29,6 @@
   --sat: env(safe-area-inset-top,    0px);
   --sab: env(safe-area-inset-bottom, 0px);
   --kb:  0px;
-  --sheet-h: 52%;
 
   color-scheme: light dark;
 }
@@ -160,12 +159,19 @@ body, .screen-list, .screen-planner, .sheet, .modal {
 }
 .search-wrap input {
   width:100%; background:var(--card);
-  border-radius:26px; padding:13px 18px 13px 44px;
+  border-radius:26px; padding:13px 46px 13px 44px;
   font-size:16px; color:var(--t1);
   box-shadow:var(--s1);
   transition:box-shadow .15s;
 }
 .search-wrap input:focus { box-shadow:0 0 0 3px rgba(26,115,232,.2),var(--s1); }
+.search-clear {
+  position:absolute; right:8px; top:50%; transform:translateY(-50%);
+  width:28px; height:28px; border-radius:14px;
+  background:var(--card3); color:var(--t2);
+  display:flex; align-items:center; justify-content:center;
+}
+.search-clear:active { opacity:.7; }
 
 /* ── Offline banner ──────────────────────────────── */
 .offline-banner {
@@ -244,7 +250,6 @@ body, .screen-list, .screen-planner, .sheet, .modal {
 }
 .trip-meta { font-size:12px; color:var(--t3); text-align:right; flex-shrink:0; line-height:1.55; }
 .trip-chev { color:var(--card3); flex-shrink:0; }
-.starred   { color:var(--amber); margin-right:3px; }
 
 /* ── Empty state ─────────────────────────────────── */
 .empty-state {
@@ -541,7 +546,7 @@ body, .screen-list, .screen-planner, .sheet, .modal {
   position:relative; z-index:1; background:var(--card);
   border-radius:22px 22px 0 0; border-top:.5px solid var(--border);
   padding-bottom:calc(20px + var(--sab));
-  max-height:88svh; overflow-y:auto; -webkit-overflow-scrolling:touch;
+  max-height:88%; overflow-y:auto; -webkit-overflow-scrolling:touch;
   overscroll-behavior-y:contain;
   scrollbar-width:none;
   animation:sheetUp .22s cubic-bezier(.32,1,.56,1) both;
