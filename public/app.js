@@ -1013,21 +1013,59 @@ function openExternal(kind) {
 
 /* ─── sheet drag ─── */
 (()=>{
-  const handle=$("sheetHandle");
-  const sheet=$("sheet");
-  let startY, startH;
-  handle.addEventListener("pointerdown",e=>{ startY=e.clientY; startH=sheet.getBoundingClientRect().height; sheet.classList.add("no-transition"); handle.setPointerCapture(e.pointerId); },{passive:true});
-  handle.addEventListener("pointermove",e=>{ if(startY==null)return; const next=Math.min(window.innerHeight-56,Math.max(160,startH+(startY-e.clientY))); sheet.style.height=`${next}px`; },{passive:true});
-  handle.addEventListener("pointerup",e=>{
-    if(startY==null)return;
-    const h=startH+(startY-e.clientY);
-    sheet.style.height=""; sheet.classList.remove("no-transition");
-    const max=window.innerHeight;
-    if(h<max*0.27) setSnap("collapsed");
-    else if(h>max*0.68) setSnap("full");
-    else setSnap("mid");
-    startY=null;
-  },{passive:true});
+  const handle = $("sheetHandle");
+  const sheet  = $("sheet");
+  let startY = null, startH = 0, lastY = 0, velY = 0, lastT = 0;
+
+  handle.addEventListener("pointerdown", e => {
+    e.preventDefault();
+    startY = e.clientY;
+    lastY  = e.clientY;
+    lastT  = Date.now();
+    velY   = 0;
+    startH = sheet.getBoundingClientRect().height;
+    sheet.classList.add("no-transition");
+    handle.setPointerCapture(e.pointerId);
+  }, { passive: false });
+
+  handle.addEventListener("pointermove", e => {
+    if (startY === null) return;
+    const now = Date.now();
+    const dt  = Math.max(1, now - lastT);
+    velY  = (e.clientY - lastY) / dt;   // px/ms — positive = dragging down
+    lastY = e.clientY;
+    lastT = now;
+    const next = Math.min(window.innerHeight - 48, Math.max(120, startH - (e.clientY - startY)));
+    sheet.style.height = `${next}px`;
+  }, { passive: true });
+
+  const finish = e => {
+    if (startY === null) return;
+    const dragDelta = startY - (e.clientY ?? lastY); // positive = dragged up
+    const h   = startH + dragDelta;
+    const max = window.innerHeight;
+
+    sheet.style.height = "";
+    sheet.classList.remove("no-transition");
+
+    // Use velocity to determine intent: flick up → full, flick down → collapse/mid
+    if (velY < -0.6) {
+      // Fast flick upward
+      setSnap("full");
+    } else if (velY > 0.6) {
+      // Fast flick downward
+      setSnap(startH > max * 0.5 ? "mid" : "collapsed");
+    } else {
+      // Settle by position
+      if      (h > max * 0.68) setSnap("full");
+      else if (h < max * 0.28) setSnap("collapsed");
+      else                      setSnap("mid");
+    }
+    startY = null;
+  };
+
+  handle.addEventListener("pointerup",     finish, { passive: true });
+  handle.addEventListener("pointercancel", finish, { passive: true });
 })();
 
 /* ─── keyboard / viewport ─── */
