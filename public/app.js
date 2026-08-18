@@ -286,6 +286,7 @@ function openTrip(id) {
   S.route=null; S.navigating=false; S.navI=0; nudgeDismissed=false;
   rememberLast(id);
   syncStops(true);
+  applyLocationToFirstStop();
   showTrip();
   scheduleRoute(false);
 }
@@ -297,7 +298,14 @@ function newTrip() {
   S.trip=trip; S.route=null; S.navigating=false; nudgeDismissed=false;
   S.snap="full"; // set before showTrip so setSnap picks it up
   syncStops(true); renderList(); showTrip();
-  setTimeout(()=>$("stopList").querySelector(".stop-input")?.focus(), 240);
+  // Pre-fill first stop with current location if available
+  applyLocationToFirstStop();
+  // Focus the second stop (destination) since first is already filled, or first if not
+  setTimeout(()=>{
+    const inputs = $("stopList").querySelectorAll(".stop-input");
+    const target = S.here ? inputs[1] : inputs[0];
+    target?.focus();
+  }, 240);
 }
 
 /* ─── save ─── */
@@ -1203,14 +1211,31 @@ if (window.visualViewport) {
 }
 
 /* ─── geolocation ─── */
+function applyLocationToFirstStop() {
+  if (!S.here || !S.trip) return;
+  const first = S.trip.stops[0];
+  if (!first || (first.label || first.query || "").trim()) return; // already has a value
+  const label = S.hereLabel && S.hereLabel !== "Your location" ? S.hereLabel : "Your location";
+  first.query = label; first.label = label; first.lat = S.here.lat; first.lng = S.here.lng;
+  const input = $("stopList").querySelector(`.stop-input[data-id="${first.id}"]`);
+  if (input) { input.value = label; input.classList.remove("unresolved"); }
+  updateRowMeta(); scheduleSave(); scheduleRoute(false);
+}
+
 function locate() {
   if (!navigator.geolocation) return;
   navigator.geolocation.watchPosition(async pos => {
+    const firstFix = !S.here;
     S.here={lat:pos.coords.latitude,lng:pos.coords.longitude};
     S.bias={...S.here};
     if (!S.hereLabel||S.hereLabel==="Your location") {
-      try { const d=await api(`/api/reverse?lat=${S.here.lat}&lon=${S.here.lng}`,{timeout:8000}); if(d.hit?.label) S.hereLabel=d.hit.label; } catch {}
+      try {
+        const d=await api(`/api/reverse?lat=${S.here.lat}&lon=${S.here.lng}`,{timeout:8000});
+        if(d.hit?.label) S.hereLabel=d.hit.label;
+      } catch {}
     }
+    // On first GPS fix, auto-fill the first stop if it's empty
+    if (firstFix) applyLocationToFirstStop();
   },()=>{},{enableHighAccuracy:true,maximumAge:15000,timeout:12000});
 }
 
