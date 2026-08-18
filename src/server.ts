@@ -4,8 +4,7 @@ import path from "node:path";
 import fs from "node:fs/promises";
 import { createReadStream } from "node:fs";
 import { fileURLToPath } from "node:url";
-import { randomUUID } from "node:crypto";
-import { allTrips, deleteTrip, getTrip, listTrips, upsertTrip, type Trip } from "./trips.ts";
+// Trips are stored per-device in localStorage — no server-side storage.
 import { drivingRoute, geocode, optimizedTrip, reverse, suggest } from "./geo.ts";
 import { hasGoogleKey } from "./google.ts";
 
@@ -81,24 +80,6 @@ async function staticFile(urlPath: string, res: http.ServerResponse) {
   }
 }
 
-function emptyTrip(): Trip {
-  const now = Date.now();
-  return {
-    id: randomUUID(),
-    title: "Untitled trip",
-    roundtrip: false,
-    keepEnds: true,
-    avoidTolls: false,
-    avoidFerries: false,
-    starred: false,
-    createdAt: now,
-    updatedAt: now,
-    stops: [
-      { id: randomUUID(), query: "", label: "", lat: null, lng: null },
-      { id: randomUUID(), query: "", label: "", lat: null, lng: null },
-    ],
-  };
-}
 
 const server = http.createServer(async (req, res) => {
   try {
@@ -199,38 +180,12 @@ const server = http.createServer(async (req, res) => {
       }
     }
 
+    // Trip CRUD — trips live on-device (localStorage). Server returns empty stubs.
     if (u.pathname === "/api/trips" && req.method === "GET") {
-      const records = await allTrips();
-      return send(res, 200, { trips: await listTrips(), records });
+      return send(res, 200, { records: [] });
     }
-
-    if (u.pathname === "/api/trips" && req.method === "POST") {
-      const trip = emptyTrip();
-      await upsertTrip(trip);
-      return send(res, 200, { trip });
-    }
-
     const one = u.pathname.match(/^\/api\/trips\/([^/]+)$/);
-    if (one && req.method === "GET") {
-      const trip = await getTrip(decodeURIComponent(one[1]));
-      if (!trip) return send(res, 404, { error: "Not found" });
-      return send(res, 200, { trip });
-    }
-    if (one && req.method === "PUT") {
-      const id = decodeURIComponent(one[1]);
-      const body = await readBody(req);
-      const prev = (await getTrip(id)) || emptyTrip();
-      const trip: Trip = {
-        ...prev,
-        ...(body.trip || {}),
-        id,
-        updatedAt: Date.now(),
-      };
-      await upsertTrip(trip);
-      return send(res, 200, { trip });
-    }
-    if (one && req.method === "DELETE") {
-      await deleteTrip(decodeURIComponent(one[1]));
+    if (one && (req.method === "PUT" || req.method === "DELETE")) {
       return send(res, 200, { ok: true });
     }
 

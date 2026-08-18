@@ -261,8 +261,8 @@ function renderList() {
 }
 
 async function loadTrips() {
-  let records = readLocal();
-  try { const d=await api("/api/trips"); records=mergeTrips(records,d.records||[]); } catch {}
+  // Trips are stored per-device in localStorage only.
+  const records = readLocal();
   setRecords(records);
   renderList();
 }
