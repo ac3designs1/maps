@@ -288,6 +288,19 @@ button:focus-visible, a:focus-visible { outline:2px solid var(--blue); outline-o
 .screen-planner .map-btn {
   pointer-events:auto;
 }
+.screen-planner.is-typing .sheet {
+  height:100%;
+  min-height:0;
+  border-radius:0;
+  border-top:none;
+  box-shadow:none;
+  padding-top:var(--sat);
+}
+.screen-planner.is-typing #btnLocate { visibility:hidden; pointer-events:none; }
+body:has(#tripScreen.is-typing) #map {
+  visibility:hidden;
+  pointer-events:none;
+}
 
 /* ── List Header ─────────────────────────────────── */
 .list-header {

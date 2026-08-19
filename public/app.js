@@ -514,6 +514,7 @@ function showList() {
   $("tripScreen").classList.remove("is-open");
   document.activeElement?.blur();
   S.focusId = null;
+  setTypingMode(false);
   hideSuggest();
   stopTrafficWatch();
   stopEtaWatch();
@@ -537,6 +538,15 @@ function showTrip() {
     S.map?.dragging?.enable();
     drawMap(true);
   });
+}
+
+function setTypingMode(on) {
+  const el = $("tripScreen");
+  if (!el) return;
+  const next = !!on;
+  if (el.classList.contains("is-typing") === next) return;
+  el.classList.toggle("is-typing", next);
+  if (next) setSnap("full");
 }
 
 /* ─── snap ─── */
@@ -1474,7 +1484,7 @@ function bindStopInput(input) {
 
   input.addEventListener("focus", () => {
     S.focusId = id;
-    setSnap("full");
+    setTypingMode(true);
     const stop = S.trip?.stops.find(s=>s.id===id);
     const q = input.value.trim();
     input.closest(".stop-row")?.scrollIntoView({ block: "nearest" });
@@ -1486,8 +1496,7 @@ function bindStopInput(input) {
 
   input.addEventListener("blur", () => {
     const stop = S.trip?.stops.find(s=>s.id===id);
-    if (!stop) return;
-    if ((stop.here || isHereStop(stop)) && input.value.trim().length < 2) {
+    if (stop && (stop.here || isHereStop(stop)) && input.value.trim().length < 2) {
       stop.query = hereDisplay();
       stop.label = hereDisplay();
       stop.here = true;
@@ -1495,6 +1504,11 @@ function bindStopInput(input) {
       input.value = hereDisplay();
       scheduleSave();
     }
+    setTimeout(() => {
+      if (S.picking) return;
+      if (document.activeElement?.matches?.(".stop-input")) return;
+      setTypingMode(false);
+    }, 180);
   });
 
   input.addEventListener("input", () => {
@@ -1687,7 +1701,7 @@ $("btnMore").onclick  = () => { if (!S.trip) return; openModal("More", moreBody(
 /* ─── map toggle ─── */
 $("btnMapToggle").onclick = () => {
   buzz();
-  if (S.snap==="full") { document.activeElement?.blur(); hideSuggest(); setSnap("mid"); drawMap(true); }
+  if (S.snap==="full") { document.activeElement?.blur(); hideSuggest(); setTypingMode(false); setSnap("mid"); drawMap(true); }
   else {
     setSnap("full");
     setTimeout(() => {
@@ -2445,6 +2459,11 @@ function openExternal(kind) {
       if      (h > max * 0.68) setSnap("full");
       else if (h < max * 0.28) setSnap("collapsed");
       else                      setSnap("mid");
+    }
+    if (S.snap !== "full") {
+      document.activeElement?.blur();
+      hideSuggest();
+      setTypingMode(false);
     }
     buzz(6);
     startY = null;
