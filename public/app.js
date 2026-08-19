@@ -1689,7 +1689,11 @@ window.addEventListener("popstate", () => {
 $("btnLocate").onclick = () => {
   if (!S.here) return toast("Location unavailable");
   buzz();
-  focusLatLng(S.here.lat, S.here.lng, 15);
+  const drop = S.snap === "full";
+  if (drop) setSnap("mid");
+  const go = () => focusLatLng(S.here.lat, S.here.lng, 15);
+  if (drop) setTimeout(go, 400);
+  else go();
 };
 
 document.addEventListener("keydown", e => {
@@ -2221,14 +2225,27 @@ function updateHereDot() {
   if (isHereStop(S.trip?.stops[0]) && S.markers[0]) S.markers[0].setLatLng(ll);
 }
 function mapPad() {
-  const h = $("tripScreen").classList.contains("is-open") ? ($("sheet").offsetHeight || 200) : 24;
-  return {paddingTopLeft:[16,64],paddingBottomRight:[16,h+10]};
+  const open = $("tripScreen")?.classList.contains("is-open");
+  const sheet = $("sheet");
+  let sheetH = 24;
+  if (open && sheet) {
+    const r = sheet.getBoundingClientRect();
+    sheetH = Math.max(78, Math.round(r.height || sheet.offsetHeight || 200));
+  }
+  return { paddingTopLeft: [16, 72], paddingBottomRight: [16, sheetH + 36] };
 }
 function focusLatLng(lat, lng, zoom = 15, animate = true) {
   if (!S.map || !Number.isFinite(lat) || !Number.isFinite(lng)) return;
+  S.map.invalidateSize({ animate: false });
+  const ll = L.latLng(lat, lng);
   const pad = mapPad();
-  S.map.setView([lat, lng], zoom, { animate: false });
-  const dy = (pad.paddingTopLeft[1] - pad.paddingBottomRight[1]) / 2;
+  S.map.setView(ll, zoom, { animate: false });
+  const size = S.map.getSize();
+  const top = pad.paddingTopLeft[1];
+  const floor = size.y - pad.paddingBottomRight[1];
+  const targetY = floor > top + 48 ? (top + floor) / 2 : top + 28;
+  const pt = S.map.latLngToContainerPoint(ll);
+  const dy = pt.y - targetY;
   if (Math.abs(dy) >= 1) S.map.panBy([0, dy], { animate: !!animate });
 }
 function drawMap(fit) {
