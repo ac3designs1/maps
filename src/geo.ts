@@ -13,6 +13,7 @@ export type SuggestHit = {
   phone?: string;
   openNow?: boolean;
   hours?: string;
+  hoursWeek?: string[];
 };
 
 const AREA_WORDS = new Set([

@@ -6,12 +6,24 @@
   "description": "iPhone trip planner — Google Maps style, no 10-stop limit",
   "scripts": {
     "start": "tsx src/server.ts",
-    "dev": "tsx src/server.ts"
+    "dev": "tsx src/server.ts",
+    "native:sync": "node scripts/native-sync.mjs",
+    "native:android": "npx cap open android",
+    "native:ios": "npx cap open ios",
+    "native:icons": "node scripts/make-icons.mjs"
   },
   "engines": {
     "node": "22.x"
   },
   "dependencies": {
+    "@capacitor/android": "^8.5.0",
+    "@capacitor/app": "^8.1.1",
+    "@capacitor/cli": "^8.5.0",
+    "@capacitor/core": "^8.5.0",
+    "@capacitor/geolocation": "^8.2.2",
+    "@capacitor/ios": "^8.5.0",
+    "@capacitor/splash-screen": "^8.0.2",
+    "@capacitor/status-bar": "^8.0.3",
     "tsx": "^4.19.4"
   },
   "devDependencies": {

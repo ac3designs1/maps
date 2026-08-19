@@ -1,8 +1,10 @@
 # Trips
 
-Google Maps–style trip planner for iPhone. No 10-stop limit. Autocomplete, optimize, save, edit anytime.
+Google Maps–style trip planner. No 10-stop limit. Autocomplete, optimise, save, edit anytime.
 
-Live URL after Render: your `onrender.com` link. On the phone: Safari → Share → **Add to Home Screen**.
+## App Store and Play Store
+
+Native iOS + Android projects live in `ios/` and `android/`. Live UI updates (no store review) need your Render URL in `native/live-url.json`. Full steps: **[native/README.md](native/README.md)**.
 
 ## Deploy on Render
 
@@ -16,9 +18,9 @@ Live URL after Render: your `onrender.com` link. On the phone: Safari → Share 
    - **Instance:** Free is fine to try; it sleeps after ~15 minutes. For always-on, use a paid instance (or ping `/health` every 10 minutes).
    - **Node version:** `22`
 
-4. Deploy. Open `https://<your-service>.onrender.com` on the iPhone.
+4. Deploy. Live site: [https://maps-8aw4.onrender.com](https://maps-8aw4.onrender.com).
 
-Trips are saved on the phone (so they survive Render restarts). The server also stores a backup when it can.
+Trips are saved on the phone (so they survive Render restarts).
 
 ## Google search (recommended)
 
@@ -27,6 +29,7 @@ Autocomplete uses **Google Places** when a key is set — much better for shops,
 1. [Google Cloud Console](https://console.cloud.google.com/) → APIs & Services → **Enable**:
    - **Places API (New)**
    - **Geocoding API**
+   - **Directions API** (routes)
 2. Create an API key → restrict it (HTTP referrers for your `onrender.com` URL, or IP for server-only).
 3. Set env var **`GOOGLE_MAPS_API_KEY`** on Render (Environment) or locally in `.env` / shell.
 4. Redeploy. `/health` returns `googlePlaces: true` when the key is loaded.

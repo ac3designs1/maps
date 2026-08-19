@@ -1,0 +1,33 @@
+{
+  "appId": "com.ac3designs.trips",
+  "appName": "Trips",
+  "webDir": "public",
+  "backgroundColor": "#F2F2F7",
+  "android": {
+    "allowMixedContent": false,
+    "adjustMarginsForEdgeToEdge": "auto"
+  },
+  "ios": {
+    "contentInset": "never",
+    "scrollEnabled": false,
+    "preferredContentMode": "mobile"
+  },
+  "plugins": {
+    "SplashScreen": {
+      "launchAutoHide": true,
+      "backgroundColor": "#F2F2F7",
+      "showSpinner": false
+    },
+    "StatusBar": {
+      "style": "DARK"
+    }
+  },
+  "server": {
+    "url": "https://maps-8aw4.onrender.com",
+    "androidScheme": "https",
+    "errorPath": "offline.html",
+    "allowNavigation": [
+      "maps-8aw4.onrender.com"
+    ]
+  }
+}

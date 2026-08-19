@@ -33,6 +33,7 @@ const S = {
   markers: [],
   trafficLines: [],
   trafficTimer: 0,
+  etaTimer: 0,
   snap: "mid",
   navI: 0,
   navigating: false,
@@ -46,6 +47,9 @@ function uid() {
   return crypto.randomUUID?.() ?? `${Date.now()}-${Math.random().toString(16).slice(2)}`;
 }
 function buzz(ms = 8) { try { navigator.vibrate?.(ms); } catch {} }
+function isNativeApp() {
+  try { return !!window.Capacitor?.isNativePlatform?.(); } catch { return false; }
+}
 function esc(s) {
   return String(s ?? "").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/"/g,"&quot;");
 }
@@ -78,13 +82,100 @@ function cycleDwell(cur) {
   return steps[i < 0 ? 1 : (i + 1) % steps.length];
 }
 function tripDwellMin(trip = S.trip) {
-  return (trip?.stops || []).reduce((n, s) => {
+  return routeStops(trip).reduce((n, s) => {
     if (isHereStop(s) || !Number.isFinite(s.lat)) return n;
     return n + dwellMinutes(s);
   }, 0);
 }
 function filledStops(trip = S.trip)   { return (trip?.stops||[]).filter(s=>(s.label||s.query||"").trim()); }
 function geocodedStops(trip = S.trip) { return (trip?.stops||[]).filter(s=>Number.isFinite(s.lat)&&Number.isFinite(s.lng)); }
+function isSkippedStop(s) { return !!s?.skipped; }
+function isDoneStop(s) { return !!s?.done && !isHereStop(s); }
+function isLiveStop(s) {
+  if (!s || !Number.isFinite(s.lat) || !Number.isFinite(s.lng)) return false;
+  if (isSkippedStop(s) || isDoneStop(s)) return false;
+  return true;
+}
+function routeStops(trip = S.trip) { return (trip?.stops||[]).filter(isLiveStop); }
+function cycleStopState(s) {
+  if (s.skipped) { s.skipped = false; s.done = false; return "Back on the trip"; }
+  if (s.done) { s.done = false; s.skipped = true; return "Skipped"; }
+  s.done = true; s.skipped = false; return "Done";
+}
+function fmtClock(ms) {
+  const d = new Date(ms);
+  const h = d.getHours();
+  const m = String(d.getMinutes()).padStart(2, "0");
+  const h12 = h % 12 || 12;
+  return `${h12}:${m}${h < 12 ? "am" : "pm"}`;
+}
+function leaveAtMs(trip = S.trip) {
+  const t = Number(trip?.leaveAt);
+  return Number.isFinite(t) && t > 0 ? t : Date.now();
+}
+function parseClockToMin(raw) {
+  const s = String(raw || "").trim().toLowerCase().replace(/\s+/g, " ");
+  const m = s.match(/^(\d{1,2})(?::(\d{2}))?\s*(am|pm)?$/);
+  if (!m) return null;
+  let h = Number(m[1]);
+  const min = Number(m[2] || 0);
+  const ap = m[3];
+  if (ap === "pm" && h < 12) h += 12;
+  if (ap === "am" && h === 12) h = 0;
+  if (h === 24) h = 0;
+  return h * 60 + min;
+}
+function hoursWindows(text) {
+  const t = String(text || "").replace(/^[^:]+:\s*/i, "").trim().toLowerCase();
+  if (!t) return null;
+  if (/closed/.test(t) && !/\d/.test(t)) return [];
+  if (/24\s*hours|open 24/.test(t)) return [[0, 24 * 60]];
+  const windows = [];
+  for (const part of t.split(/[,;]|\s+and\s+/)) {
+    const range = part.split(/\s*(?:[–—−]| to )\s*/);
+    if (range.length < 2) continue;
+    const a = parseClockToMin(range[0]);
+    const b = parseClockToMin(range[1]);
+    if (a == null || b == null) continue;
+    if (b <= a) { windows.push([a, 24 * 60], [0, b]); }
+    else windows.push([a, b]);
+  }
+  return windows.length ? windows : null;
+}
+function isClosedAt(stop, ms) {
+  if (!stop || isHereStop(stop)) return false;
+  const d = new Date(ms);
+  const i = (d.getDay() + 6) % 7;
+  const desc = Array.isArray(stop.hoursWeek) && stop.hoursWeek[i] ? stop.hoursWeek[i] : stop.hours;
+  const windows = hoursWindows(desc);
+  if (!windows) return false;
+  if (!windows.length) return true;
+  const mins = d.getHours() * 60 + d.getMinutes();
+  return !windows.some(([a, b]) => mins >= a && mins < b);
+}
+function stopArrivals(trip = S.trip) {
+  const r = S.route;
+  const pts = routeStops(trip);
+  if (!r?.legs || pts.length < 2) return [];
+  let t = leaveAtMs(trip);
+  const out = [];
+  for (let i = 0; i < pts.length; i++) {
+    if (i === 0) {
+      out.push({ id: pts[0].id, arrive: t, leave: t });
+      continue;
+    }
+    const leg = r.legs[i - 1];
+    t += (Number(leg?.durationS) || 0) * 1000;
+    const arrive = t;
+    t += dwellMinutes(pts[i]) * 60 * 1000;
+    out.push({ id: pts[i].id, arrive, leave: t });
+  }
+  if (trip?.roundtrip && r.legs.length >= pts.length) {
+    t += (Number(r.legs[pts.length - 1]?.durationS) || 0) * 1000;
+    out.push({ id: "__home__", arrive: t, leave: t });
+  }
+  return out;
+}
 function isHereStop(s) {
   if (!s) return false;
   if (s.here) return true;
@@ -207,6 +298,37 @@ function confirmDeleteTrip(id) {
   const name = String(trip?.title || "this trip").trim() || "this trip";
   askConfirm("Delete trip?", `Delete “${name}”?`, () => deleteTripFromList(id));
 }
+function leaveBody() {
+  const d = new Date(leaveAtMs());
+  const hh = String(d.getHours()).padStart(2, "0");
+  const mm = String(d.getMinutes()).padStart(2, "0");
+  return `<div class="modal-pad">
+    <p class="modal-hint">Drive and wait at stops are included in the last-stop time.</p>
+    <div class="modal-actions" style="flex-wrap:wrap">
+      <button type="button" id="leaveNow" class="btn-secondary" style="flex:1">Leave now</button>
+      <button type="button" id="leave15" class="btn-secondary">+15 min</button>
+      <button type="button" id="leave30" class="btn-secondary">+30 min</button>
+    </div>
+    <div class="modal-field" style="margin-top:14px">
+      <label>Leave at</label>
+      <input id="leaveTime" type="time" value="${hh}:${mm}"/>
+    </div>
+    <div class="modal-actions">
+      <button type="button" id="leaveSet" class="btn-primary" style="flex:1">Set</button>
+    </div>
+  </div>`;
+}
+function setLeaveAt(ms) {
+  if (!S.trip) return;
+  S.trip.leaveAt = Number.isFinite(ms) && ms > 0 ? ms : null;
+  closeModal();
+  scheduleSave();
+  updateRowMeta();
+}
+function openLeaveModal() {
+  if (!S.trip || !S.route || routeStops().length < 2) return;
+  openModal("Leave at", leaveBody());
+}
 $("modalBack").onclick   = closeModal;
 $("modalClose").onclick  = closeModal;
 $("modal").addEventListener("click", e => {
@@ -274,8 +396,9 @@ function duplicateTrip(id) {
   const base = String(c.title || "Trip").replace(/\s+copy$/i, "").trim() || "Trip";
   c.title = `${base} copy`;
   c.starred = false;
+  c.leaveAt = null;
   c.createdAt = c.updatedAt = Date.now();
-  c.stops = (c.stops || []).map(s => ({ ...s, id: uid() }));
+  c.stops = (c.stops || []).map(s => ({ ...s, id: uid(), done: false, skipped: false }));
   setRecords([c, ...(S.records || [])]);
   renderList();
   toast("Duplicated");
@@ -409,6 +532,7 @@ function showList() {
   S.focusId = null;
   hideSuggest();
   stopTrafficWatch();
+  stopEtaWatch();
   renderContinue();
 }
 function showTrip() {
@@ -419,6 +543,7 @@ function showTrip() {
     try { history.pushState({ tp: 1 }, ""); } catch {}
   }
   startTrafficWatch();
+  startEtaWatch();
   requestAnimationFrame(() => {
     S.map?.invalidateSize();
     S.map?.dragging?.enable();
@@ -584,7 +709,7 @@ function flushSave() {
 window.addEventListener("pagehide", flushSave);
 document.addEventListener("visibilitychange", () => {
   if (document.visibilityState === "hidden") flushSave();
-  else if ($("tripScreen").classList.contains("is-open") && geocodedStops().length >= 2 && !S.routing) {
+  else if ($("tripScreen").classList.contains("is-open") && routeStops().length >= 2 && !S.routing) {
     scheduleRoute(false, true);
   }
 });
@@ -849,6 +974,12 @@ async function applyHit(hit) {
     stop.lat = hit.lat;
     stop.lng = hit.lng;
     stop.here = isHere;
+    stop.phone = isHere ? "" : (hit.phone || "");
+    stop.hours = isHere ? "" : (hit.hours || "");
+    stop.hoursWeek = isHere ? null : (Array.isArray(hit.hoursWeek) ? hit.hoursWeek : null);
+    stop.openNow = isHere ? undefined : hit.openNow;
+    stop.done = false;
+    stop.skipped = false;
     hideSuggest();
     const input = $("stopList").querySelector(`.stop-input[data-id="${stop.id}"]`);
     if (input) { input.value = displayVal; input.classList.remove("unresolved"); }
@@ -919,7 +1050,7 @@ function makeRow(s,i,n) {
 
   row.innerHTML = `
     <div class="stop-dot-col">
-      <div class="stop-dot">${stopLabel(i,n)}</div>
+      <button type="button" class="stop-dot" data-act="done" data-id="${s.id}" ${isHereStop(s)||!Number.isFinite(s.lat)?"disabled":""} aria-label="Mark done or skip">${stopLabel(i,n)}</button>
       <div class="stop-line"></div>
     </div>
     <div class="stop-input-col">
@@ -950,6 +1081,9 @@ function updateRowMeta() {
   if (!S.trip) return;
   const stops = S.trip.stops;
   const n = stops.length;
+  const livePts = routeStops();
+  const arrivals = stopArrivals();
+  const liveI = Object.fromEntries(livePts.map((p, idx) => [p.id, idx]));
   const domRows = [...$("stopList").children];
   // Safety: only iterate as far as both DOM and stops arrays go
   const count = Math.min(domRows.length, n);
@@ -957,9 +1091,13 @@ function updateRowMeta() {
     const row = domRows[i];
     const s   = stops[i];
     if (!s) continue;
-    row.className = `stop-row ${stopKind(i,n)}${row.classList.contains("dragging")?" dragging":""}${isHereStop(s)?" is-here":""}`.trim();
+    row.className = `stop-row ${stopKind(i,n)}${row.classList.contains("dragging")?" dragging":""}${isHereStop(s)?" is-here":""}${isDoneStop(s)?" is-done":""}${isSkippedStop(s)?" is-skipped":""}`.trim();
     const dot = row.querySelector(".stop-dot");
-    if (dot) dot.textContent = stopLabel(i,n);
+    if (dot) {
+      dot.disabled = isHereStop(s) || !Number.isFinite(s.lat);
+      dot.textContent = isDoneStop(s) ? "✓" : isSkippedStop(s) ? "—" : stopLabel(i,n);
+      dot.setAttribute("aria-label", isDoneStop(s) ? "Done — tap to skip" : isSkippedStop(s) ? "Skipped — tap to restore" : "Mark done");
+    }
     const input = row.querySelector(".stop-input");
     if (input) {
       const here = isHereStop(s);
@@ -975,13 +1113,26 @@ function updateRowMeta() {
     }
     const legEl = row.querySelector(".leg-meta");
     if (legEl) {
-      const leg = S.route?.legs?.[i-1];
-      const drive = i>0&&leg ? `${fmtDur(leg.durationS)} · ${fmtKm(leg.distanceM)}` : "";
+      const arr = arrivals.find(a => a.id === s.id);
+      const li = liveI[s.id];
+      const leg = Number.isFinite(li) && li > 0 ? S.route?.legs?.[li - 1] : null;
+      const drive = !isDoneStop(s) && !isSkippedStop(s) && i>0 && leg ? `${fmtDur(leg.durationS)} · ${fmtKm(leg.distanceM)}` : "";
+      const eta = arr && !isDoneStop(s) && !isSkippedStop(s) ? (li===0 ? `Leave ${fmtClock(arr.leave)}` : fmtClock(arr.arrive)) : "";
+      const closed = arr && li > 0 && isClosedAt(s, arr.arrive);
       const waitN = dwellMinutes(s);
-      const wait = !isHereStop(s) && Number.isFinite(s.lat)
+      const wait = !isHereStop(s) && Number.isFinite(s.lat) && !isSkippedStop(s) && !isDoneStop(s)
         ? `<button type="button" class="dwell-btn" data-act="dwell" data-id="${s.id}">${waitN ? `${waitN} min here` : "Wait"}</button>`
         : "";
-      legEl.innerHTML = [drive ? `<span>${drive}</span>` : "", wait].filter(Boolean).join("");
+      const tel = String(s.phone || "").replace(/[^\d+]/g, "");
+      const call = tel ? `<a class="stop-call" href="tel:${esc(tel)}" aria-label="Call"><svg viewBox="0 0 24 24" width="12" height="12" fill="currentColor"><path d="M6.6 10.8c1.4 2.8 3.8 5.2 6.6 6.6l2.2-2.2c.3-.3.7-.4 1.1-.3 1.2.4 2.5.6 3.8.6.6 0 1 .4 1 1V20c0 .6-.4 1-1 1C10.6 21 3 13.4 3 4c0-.6.4-1 1-1h3.5c.6 0 1 .4 1 1 0 1.3.2 2.6.6 3.8.1.4 0 .8-.3 1.1L6.6 10.8z"/></svg></a>` : "";
+      const closedEl = closed ? `<span class="eta-closed">Closed at ${fmtClock(arr.arrive)}</span>` : "";
+      legEl.innerHTML = [
+        drive ? `<span>${drive}</span>` : "",
+        eta && !closed ? `<span class="eta-time">${esc(eta)}</span>` : "",
+        closedEl,
+        wait,
+        call,
+      ].filter(Boolean).join("");
     }
   }
   updateSummary();
@@ -1012,7 +1163,7 @@ function syncStops(force) {
 function updateSummary() {
   if (!S.trip) return;
   const r = S.route;
-  const n = geocodedStops().length;
+  const n = routeStops().length;
   const title = $("summaryTime");
   const sub   = $("summaryMeta");
   const start = $("btnStart");
@@ -1021,23 +1172,29 @@ function updateSummary() {
 
   if (S.routing && n>=2) {
     title.textContent = "Finding route…";
-    sub.textContent   = `${n} stops`;
+    sub.textContent   = `${n} stop${n===1?"":"s"}`;
     start.disabled    = true;
     return;
   }
   if (!r||n<2) {
     const hereStart = isHereStop(S.trip.stops[0]);
-    title.textContent = n<2 ? (hereStart ? "Add a destination" : "Add two places") : "Can't find a route";
-    sub.textContent   = hereStart && n<2 ? "Search or tap + Stop" : `${filledStops().length} stop${filledStops().length===1?"":"s"}`;
+    const geo = geocodedStops().length;
+    title.textContent = geo<2 ? (hereStart ? "Add a destination" : "Add two places") : (n<2 ? "All stops done" : "Can't find a route");
+    sub.textContent   = hereStart && geo<2 ? "Search or tap + Stop" : `${filledStops().length} stop${filledStops().length===1?"":"s"}`;
     start.disabled    = true;
     return;
   }
-  title.textContent = `${fmtDur(r.durationS)} · ${fmtKm(r.distanceM)}`;
+  const arrivals = stopArrivals();
+  const last = arrivals[arrivals.length-1];
+  const leaveLabel = S.trip.leaveAt ? fmtClock(leaveAtMs()) : "now";
+  title.textContent = last ? `Leave ${leaveLabel} · ${fmtClock(last.arrive)}` : `${fmtDur(r.durationS)} · ${fmtKm(r.distanceM)}`;
   const delay = r.trafficDelayS || 0;
   const trafficNote = delay >= 90 ? ` · +${fmtDur(delay)} traffic` : "";
   const wait = tripDwellMin();
   const waitNote = wait ? ` · ${wait} min at stops` : "";
-  sub.textContent   = `${S.trip.title||"Trip"}${S.trip.roundtrip?" · round trip":""}${trafficNote}${waitNote}`;
+  const closedN = arrivals.filter((a, i) => i>0 && isClosedAt(routeStops().find(s=>s.id===a.id), a.arrive)).length;
+  const closedNote = closedN ? ` · ${closedN} closed` : "";
+  sub.textContent   = `${fmtDur(r.durationS)} · ${fmtKm(r.distanceM)}${S.trip.roundtrip?" · round trip":""}${trafficNote}${waitNote}${closedNote}`;
   start.disabled    = false;
 }
 
@@ -1046,7 +1203,7 @@ let nudgeDismissed = false;
 function updateNudge() {
   const nudge = $("optimiseNudge");
   if (!nudge) return;
-  const pts = geocodedStops();
+  const pts = routeStops();
   // Show when 3+ geocoded stops, not round trip, route loaded, not dismissed, not already optimised this session
   const show = !nudgeDismissed && !S.trip?.roundtrip && pts.length >= 3 && S.route && !S.routing;
   nudge.classList.toggle("hidden", !show);
@@ -1060,7 +1217,7 @@ $("nudgeOptimise")?.addEventListener("click", () => {
   compactEmptyStops();
   pinHereFirst();
   syncStops(true);
-  if (geocodedStops().length < 3) return toast("Add at least 3 places first");
+  if (routeStops().length < 3) return toast("Add at least 3 places first");
   $("btnOptimise").classList.add("loading");
   scheduleRoute(true);
 });
@@ -1073,7 +1230,7 @@ $("nudgeDismiss")?.addEventListener("click", () => {
 function updateNav() {
   const bar = $("navBar");
   if (!S.navigating) { bar.classList.add("hidden"); return; }
-  const pts = geocodedStops();
+  const pts = routeStops();
   if (S.navI >= pts.length-1) {
     $("navTitle").textContent = "Trip complete";
     $("navSub").textContent   = "You've reached every stop";
@@ -1225,6 +1382,18 @@ function bindStopInput(input) {
 
 /* ─── stop list events ─── */
 $("stopList").addEventListener("click", e => {
+  if (e.target.closest(".stop-call")) return;
+  const done = e.target.closest("[data-act=\"done\"]");
+  if (done && S.trip && !done.disabled) {
+    const s = S.trip.stops.find(x => x.id === done.dataset.id);
+    if (!s || isHereStop(s) || !Number.isFinite(s.lat)) return;
+    const msg = cycleStopState(s);
+    S.navI = 0;
+    updateRowMeta(); scheduleSave(); scheduleRoute(false);
+    buzz();
+    toast(msg);
+    return;
+  }
   const dwell = e.target.closest(".dwell-btn");
   if (dwell && S.trip) {
     const s = S.trip.stops.find(x => x.id === dwell.dataset.id);
@@ -1337,9 +1506,9 @@ $("btnOptimise").onclick = () => {
   compactEmptyStops();
   pinHereFirst();
   syncStops(true);
-  if (geocodedStops().length<3) return toast("Add at least 3 places first");
+  if (routeStops().length<3) return toast("Add at least 3 places first");
   $("btnOptimise").classList.add("loading");
-  _analytics?.ping("optimise", { stops: geocodedStops().length });
+  _analytics?.ping("optimise", { stops: routeStops().length });
   scheduleRoute(true);
 };
 $("btnShare").onclick = () => { if (!S.trip) return; shareTrip(); _analytics?.ping("share"); };
@@ -1360,12 +1529,13 @@ $("btnMapToggle").onclick = () => {
 
 /* ─── start / nav ─── */
 $("btnStart").onclick = () => {
-  if (geocodedStops().length < 2) return toast("Add at least two places first");
+  if (routeStops().length < 2) return toast("Add at least two places first");
   S.navigating=true; S.navI=0; updateNav(); drawMap(true); goLeg();
-  _analytics?.ping("navigate", { stops: geocodedStops().length });
+  _analytics?.ping("navigate", { stops: routeStops().length });
 };
+$("summaryTap")?.addEventListener("click", openLeaveModal);
 $("btnNext").onclick = () => {
-  const pts = geocodedStops();
+  const pts = routeStops();
   if (S.navI>=pts.length-1) { S.navigating=false; updateNav(); drawMap(true); return; }
   S.navI++; updateNav(); drawMap(true);
   if (S.navI<pts.length-1) goLeg();
@@ -1579,6 +1749,19 @@ $("modalBody").addEventListener("click", e => {
     fn?.();
     return;
   }
+  if (e.target.id==="leaveNow") { setLeaveAt(null); return; }
+  if (e.target.id==="leave15") { setLeaveAt(Date.now() + 15 * 60_000); return; }
+  if (e.target.id==="leave30") { setLeaveAt(Date.now() + 30 * 60_000); return; }
+  if (e.target.id==="leaveSet") {
+    const v = $("leaveTime")?.value;
+    if (!v) return;
+    const [h, m] = v.split(":").map(Number);
+    const d = new Date();
+    d.setHours(h, m || 0, 0, 0);
+    if (d.getTime() < Date.now() - 60 * 60_000) d.setDate(d.getDate() + 1);
+    setLeaveAt(d.getTime());
+    return;
+  }
 
   // Pin picker (Home / Work)
   const pinSave = e.target.closest("[data-pin-save]");
@@ -1728,7 +1911,7 @@ function importBackupFile(file) {
       const data=JSON.parse(String(reader.result||"{}"));
       const incoming=Array.isArray(data.trips)?data.trips:data.stops?[data]:[];
       if (!incoming.length) return toast("No trips in file");
-      const norm=incoming.map(t=>({...emptyTrip(),...t,id:uid(),stops:(t.stops||[]).map(s=>({id:uid(),query:s.label||s.query||"",label:s.label||s.query||"",lat:s.lat??null,lng:s.lng??null,here:!!s.here||String(s.query||s.label||"").toLowerCase()==="your location"})),updatedAt:Date.now(),createdAt:t.createdAt||Date.now()}));
+      const norm=incoming.map(t=>({...emptyTrip(),...t,id:uid(),leaveAt:null,stops:(t.stops||[]).map(s=>({id:uid(),query:s.label||s.query||"",label:s.label||s.query||"",lat:s.lat??null,lng:s.lng??null,here:!!s.here||String(s.query||s.label||"").toLowerCase()==="your location",phone:s.phone||"",hours:s.hours||"",hoursWeek:Array.isArray(s.hoursWeek)?s.hoursWeek:null,dwellMin:dwellMinutes(s),done:false,skipped:false})),updatedAt:Date.now(),createdAt:t.createdAt||Date.now()}));
       if (data.pins&&typeof data.pins==="object") writePins({...readPins(),...data.pins});
       setRecords(mergeTrips(norm,S.records||readLocal())); renderList();
       toast(`Imported ${norm.length} trip${norm.length===1?"":"s"}`);
@@ -1748,7 +1931,7 @@ function scheduleRoute(optimize, silent) {
 }
 async function routeNow(optimize, silent) {
   if (!S.trip) return;
-  const pts=geocodedStops();
+  const pts=routeStops();
   const seq=++S.routeSeq;
   if (pts.length<2) {
     S.route=null; S.routing=false; drawMap(true); updateRowMeta(); return;
@@ -1798,13 +1981,26 @@ function startTrafficWatch() {
   S.trafficTimer = setInterval(() => {
     if (document.hidden || S.routing || !S.trip) return;
     if (!$("tripScreen").classList.contains("is-open")) return;
-    if (geocodedStops().length < 2) return;
+    if (routeStops().length < 2) return;
     scheduleRoute(false, true);
   }, 120000);
 }
 function stopTrafficWatch() {
   clearInterval(S.trafficTimer);
   S.trafficTimer = 0;
+}
+function startEtaWatch() {
+  clearInterval(S.etaTimer);
+  S.etaTimer = setInterval(() => {
+    if (document.hidden || !S.trip || S.trip.leaveAt || S.routing) return;
+    if (!$("tripScreen").classList.contains("is-open")) return;
+    if (!S.route) return;
+    updateRowMeta();
+  }, 30000);
+}
+function stopEtaWatch() {
+  clearInterval(S.etaTimer);
+  S.etaTimer = 0;
 }
 
 /* ─── map ─── */
@@ -1844,11 +2040,15 @@ function drawMap(fit) {
   if (S.line) { S.line.remove(); S.line=null; }
   (S.trafficLines||[]).forEach(l=>l.remove()); S.trafficLines=[];
   const pts=geocodedStops();
-  pts.forEach((s,i) => {
-    const last=i===pts.length-1&&!S.trip?.roundtrip;
-    const active=S.navigating&&i===Math.min(S.navI+1,pts.length-1);
-    const cls=`map-pin${i===0?" pin-origin":last?" pin-dest":""}${active?" pin-active":""}`;
-    const icon=L.divIcon({className:"",html:`<div class="${cls}">${i+1}</div>`,iconSize:[28,28],iconAnchor:[14,14]});
+  const live=routeStops();
+  const nextLive=live[Math.min(S.navI+1, Math.max(0, live.length-1))];
+  pts.forEach((s) => {
+    const tripI=S.trip.stops.findIndex(x=>x.id===s.id);
+    const last=tripI===S.trip.stops.length-1&&!S.trip?.roundtrip;
+    const active=S.navigating&&nextLive&&s.id===nextLive.id;
+    const cls=`map-pin${tripI===0?" pin-origin":last?" pin-dest":""}${active?" pin-active":""}${isDoneStop(s)?" pin-done":""}${isSkippedStop(s)?" pin-skipped":""}`;
+    const label=isDoneStop(s)?"✓":isSkippedStop(s)?"—":String(tripI<0?"":tripI+1);
+    const icon=L.divIcon({className:"",html:`<div class="${cls}">${label}</div>`,iconSize:[28,28],iconAnchor:[14,14]});
     const mk=L.marker([s.lat,s.lng],{icon}).addTo(S.map);
     mk.on("click",()=>{
       S.focusId=s.id;
@@ -1889,20 +2089,28 @@ function mapsQuery(s) {
   return Number.isFinite(s.lat)&&Number.isFinite(s.lng)?`${s.lat},${s.lng}`:encodeURIComponent(s.label||s.query||"");
 }
 function goLeg() {
-  const pts=geocodedStops();
+  const pts=routeStops();
   if (S.navI>=pts.length-1) return;
   const b=pts[S.navI+1];
-  location.href=`https://waze.com/ul?ll=${b.lat},${b.lng}&navigate=yes`;
+  openUrl(`https://waze.com/ul?ll=${b.lat},${b.lng}&navigate=yes`);
+}
+function openUrl(url) {
+  const App = window.Capacitor?.Plugins?.App;
+  if (isNativeApp() && App?.openUrl) {
+    App.openUrl({ url }).catch(() => { location.href = url; });
+    return;
+  }
+  location.href = url;
 }
 function openExternal(kind) {
-  const pts=geocodedStops();
+  const pts=routeStops();
   if (pts.length<2) return toast("Need a route first");
   if (kind==="waze") {
     // Waze deeplink supports multi-stop via navigate URL with stop params
     const dest=pts[pts.length-1];
     const stopParams=pts.slice(1,-1).map((p,i)=>`stop${i+1}_lat=${p.lat}&stop${i+1}_lon=${p.lng}`).join("&");
     const base=`https://waze.com/ul?ll=${dest.lat},${dest.lng}&navigate=yes`;
-    location.href = stopParams ? `${base}&${stopParams}` : base;
+    openUrl(stopParams ? `${base}&${stopParams}` : base);
     return;
   }
   const u=new URL("https://www.google.com/maps/dir/");
@@ -1910,7 +2118,7 @@ function openExternal(kind) {
   u.searchParams.set("destination",mapsQuery(pts[pts.length-1])); u.searchParams.set("travelmode","driving");
   const mid=pts.slice(1,-1).slice(0,8).map(p=>mapsQuery(p)).join("|");
   if (mid) u.searchParams.set("waypoints",mid);
-  location.href=u.toString();
+  openUrl(u.toString());
 }
 
 /* ─── sheet drag ─── */
@@ -2033,13 +2241,11 @@ function pinHereFirst() {
 }
 
 function locate() {
-  if (!navigator.geolocation) return;
   let locDenied = false;
-  navigator.geolocation.watchPosition(async pos => {
+  const onFix = async (lat, lng) => {
     const firstFix = !S.here;
-    S.here={lat:pos.coords.latitude,lng:pos.coords.longitude};
+    S.here={lat,lng};
     S.bias={...S.here};
-    // Keep GPS coords fresh if stop 1 is Your location — do not re-route every tick
     const hereStop = S.trip?.stops.find(isHereStop);
     if (hereStop) {
       hereStop.lat = S.here.lat;
@@ -2059,17 +2265,37 @@ function locate() {
         }
       } catch {}
     }
-  },(err)=>{
+  };
+  const onErr = (err) => {
     if (locDenied) return;
     locDenied = true;
     if (err && err.code === 1) toast("Location is off — type a start address");
-  },{enableHighAccuracy:true,maximumAge:15000,timeout:12000});
+  };
+  const Geo = window.Capacitor?.Plugins?.Geolocation;
+  if (Geo?.watchPosition) {
+    const start = () => {
+      Geo.watchPosition({ enableHighAccuracy: true }, (pos, err) => {
+        if (err || !pos?.coords) return onErr(err || { code: 1 });
+        onFix(pos.coords.latitude, pos.coords.longitude);
+      });
+    };
+    if (Geo.requestPermissions) {
+      Geo.requestPermissions().then(start).catch(start);
+      return;
+    }
+    start();
+    return;
+  }
+  if (!navigator.geolocation) return;
+  navigator.geolocation.watchPosition(pos => {
+    onFix(pos.coords.latitude, pos.coords.longitude);
+  }, onErr, {enableHighAccuracy:true,maximumAge:15000,timeout:12000});
 }
 
 /* ─── online/offline ─── */
 window.addEventListener("online",  ()=>{
   $("offlineBanner").classList.add("hidden");
-  if (S.trip && geocodedStops().length>=2 && !S.routing) scheduleRoute(false);
+  if (S.trip && routeStops().length>=2 && !S.routing) scheduleRoute(false);
 });
 window.addEventListener("offline", ()=>$("offlineBanner").classList.remove("hidden"));
 if (!navigator.onLine) $("offlineBanner").classList.remove("hidden");
@@ -2092,6 +2318,7 @@ function importTripFromUrl() {
 
 /* ─── install prompt ─── */
 (function installPrompt() {
+  if (isNativeApp()) return;
   const DISMISS_KEY = "install_dismissed";
   // Already installed as PWA — hide everything
   const isStandalone = window.matchMedia("(display-mode:standalone)").matches
@@ -2172,7 +2399,10 @@ const _analytics = (function() {
   const DID_KEY = "maps.did";
   const sid = crypto.randomUUID?.() ?? `${Date.now()}-${Math.random().toString(16).slice(2)}`;
   const ua = navigator.userAgent || "";
-  const platform = /iPhone|iPad|iPod/.test(ua) ? "iOS"
+  const capPlat = (() => { try { return window.Capacitor?.getPlatform?.(); } catch { return ""; } })();
+  const platform = capPlat === "ios" ? "iOS-app"
+    : capPlat === "android" ? "Android-app"
+    : /iPhone|iPad|iPod/.test(ua) ? "iOS"
     : /Android/.test(ua) ? "Android"
     : /Mac/.test(ua) ? "Mac"
     : /Win/.test(ua) ? "Windows"
@@ -2239,7 +2469,28 @@ document.addEventListener("touchmove", (e) => {
   e.preventDefault();
 }, { passive: false });
 
+function nativeInit() {
+  if (!isNativeApp()) return;
+  document.documentElement.classList.add("is-native");
+  const Plugins = window.Capacitor?.Plugins || {};
+  const dark = !!window.matchMedia?.("(prefers-color-scheme: dark)")?.matches;
+  Plugins.StatusBar?.setStyle?.({ style: dark ? "LIGHT" : "DARK" });
+  Plugins.StatusBar?.setBackgroundColor?.({ color: dark ? "#000000" : "#F2F2F7" });
+  Plugins.SplashScreen?.hide?.();
+  Plugins.App?.addListener?.("backButton", () => {
+    if (!$("modal")?.classList.contains("hidden")) { closeModal(); return; }
+    if (!$("suggestBox")?.classList.contains("hidden")) { hideSuggest(); return; }
+    if ($("tripScreen")?.classList.contains("is-open")) {
+      if (history.state?.tp === 1) { history.back(); return; }
+      showList();
+      return;
+    }
+    Plugins.App.exitApp?.();
+  });
+}
+
 /* ─── boot ─── */
+nativeInit();
 ensureMap();
 locate();
 loadTrips().then(()=>{ if(!importTripFromUrl()) renderContinue(); }).catch(()=>{});

@@ -127,7 +127,7 @@ function placeContact(p: {
   currentOpeningHours?: { openNow?: boolean; weekdayDescriptions?: string[] };
   regularOpeningHours?: { weekdayDescriptions?: string[] };
   opening_hours?: { open_now?: boolean; weekday_text?: string[] };
-}): Pick<SuggestHit, "phone" | "openNow" | "hours"> {
+}): Pick<SuggestHit, "phone" | "openNow" | "hours" | "hoursWeek"> {
   const phone = (
     p.nationalPhoneNumber ||
     p.internationalPhoneNumber ||
@@ -135,16 +135,17 @@ function placeContact(p: {
     p.international_phone_number ||
     ""
   ).trim();
-  const openNow = p.currentOpeningHours?.openNow ?? p.opening_hours?.open_now;
-  const hours = weekdayHours(
+  const week =
     p.currentOpeningHours?.weekdayDescriptions ||
-      p.regularOpeningHours?.weekdayDescriptions ||
-      p.opening_hours?.weekday_text,
-  );
-  const extra: Pick<SuggestHit, "phone" | "openNow" | "hours"> = {};
+    p.regularOpeningHours?.weekdayDescriptions ||
+    p.opening_hours?.weekday_text;
+  const openNow = p.currentOpeningHours?.openNow ?? p.opening_hours?.open_now;
+  const hours = weekdayHours(week);
+  const extra: Pick<SuggestHit, "phone" | "openNow" | "hours" | "hoursWeek"> = {};
   if (phone) extra.phone = phone;
   if (openNow === true || openNow === false) extra.openNow = openNow;
   if (hours) extra.hours = hours;
+  if (week?.length) extra.hoursWeek = week.map(String);
   return extra;
 }
 
@@ -155,7 +156,7 @@ function hitFromNameAddr(
   lng: number,
   types: string[],
   placeId?: string,
-  extra?: Pick<SuggestHit, "phone" | "openNow" | "hours">,
+  extra?: Pick<SuggestHit, "phone" | "openNow" | "hours" | "hoursWeek">,
 ): SuggestHit {
   return {
     placeId: placeId ? placeId.replace(/^places\//, "") : undefined,

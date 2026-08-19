@@ -3,4 +3,17 @@ data/
 *.log
 .DS_Store
 .env
+android/.gradle/
+android/app/build/
+android/build/
+android/local.properties
+android/captures/
+android/*.iml
+android/.idea/
+ios/App/Pods/
+ios/App/build/
+ios/App/App/public/
+*.keystore
+*.jks
+*.mobileprovision
 
