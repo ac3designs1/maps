@@ -299,11 +299,11 @@ function rankHits(query: string, hits: SuggestHit[], lat?: number, lon?: number)
     if (h.kind === "address" && looksStreet) score += 28;
     if (h.placeId) score += 6;
     score -= i * 0.4;
-    if (Number.isFinite(h.distanceM)) score -= Math.min((h.distanceM as number) / 1200, 35);
+    if (Number.isFinite(h.distanceM)) score -= Math.min((h.distanceM as number) / 2500, 18);
     if (Number.isFinite(h.lat) && Number.isFinite(h.lng)) {
       const dlat = (h.lat as number) - bias.lat;
       const dlng = (h.lng as number) - bias.lon;
-      score -= Math.sqrt(dlat * dlat + dlng * dlng) * 8;
+      score -= Math.sqrt(dlat * dlat + dlng * dlng) * (looksStreet ? 8 : 2.5);
     }
     return { h, score };
   });
@@ -319,7 +319,7 @@ export async function suggest(q: string, lat?: number, lon?: number): Promise<Su
   if (hasGoogleKey()) {
     try {
       const google = await googleSuggest(query, lat, lon);
-      if (google.length) return rankHits(query, google, lat, lon).slice(0, 8);
+      if (google.length) return rankHits(query, google, lat, lon).slice(0, 10);
     } catch (err) {
       console.warn("Google suggest fallback:", err instanceof Error ? err.message : err);
     }

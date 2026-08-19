@@ -47,6 +47,26 @@ function biasPoint(lat?: number, lon?: number) {
   return { lat: AU.biasLat, lon: AU.biasLng };
 }
 
+/** Metro-scale viewport. Autocomplete circles cannot exceed 50 km, which misses most of a city. */
+function locationBias(lat?: number, lon?: number) {
+  const p = biasPoint(lat, lon);
+  const dLat = 1.6;
+  const cos = Math.max(0.3, Math.abs(Math.cos((p.lat * Math.PI) / 180)));
+  const dLng = 1.6 / cos;
+  return {
+    rectangle: {
+      low: {
+        latitude: Math.max(AU.minLat, p.lat - dLat),
+        longitude: Math.max(AU.minLng, p.lon - dLng),
+      },
+      high: {
+        latitude: Math.min(AU.maxLat, p.lat + dLat),
+        longitude: Math.min(AU.maxLng, p.lon + dLng),
+      },
+    },
+  };
+}
+
 function googleKey() {
   return (process.env.GOOGLE_MAPS_API_KEY || process.env.GOOGLE_PLACES_API_KEY || "").trim();
 }
@@ -125,15 +145,11 @@ async function googleAutocomplete(query: string, lat?: number, lon?: number): Pr
   const body = {
     input: query,
     includedRegionCodes: ["au"],
-    languageCode: "en",
+    languageCode: "en-AU",
     regionCode: "au",
+    includePureServiceAreaBusinesses: true,
     origin: { latitude: bias.lat, longitude: bias.lon },
-    locationBias: {
-      circle: {
-        center: { latitude: bias.lat, longitude: bias.lon },
-        radius: 80000.0,
-      },
-    },
+    locationBias: locationBias(lat, lon),
   };
 
   const data = (await googleFetch("https://places.googleapis.com/v1/places:autocomplete", {
@@ -142,7 +158,7 @@ async function googleAutocomplete(query: string, lat?: number, lon?: number): Pr
       "Content-Type": "application/json",
       "X-Goog-Api-Key": key,
       "X-Goog-FieldMask":
-        "suggestions.placePrediction.placeId,suggestions.placePrediction.place,suggestions.placePrediction.structuredFormat,suggestions.placePrediction.types,suggestions.placePrediction.distanceMeters",
+        "suggestions.placePrediction.placeId,suggestions.placePrediction.place,suggestions.placePrediction.text,suggestions.placePrediction.structuredFormat,suggestions.placePrediction.types,suggestions.placePrediction.distanceMeters",
     },
     body: JSON.stringify(body),
   }, 8000)) as {
@@ -151,6 +167,7 @@ async function googleAutocomplete(query: string, lat?: number, lon?: number): Pr
         placeId?: string;
         place?: string;
         distanceMeters?: number;
+        text?: { text?: string };
         structuredFormat?: { mainText?: { text?: string }; secondaryText?: { text?: string } };
         types?: string[];
       };
@@ -163,8 +180,9 @@ async function googleAutocomplete(query: string, lat?: number, lon?: number): Pr
     if (!p) continue;
     const id = (p.placeId || p.place || "").replace(/^places\//, "");
     if (!id) continue;
-    const name = p.structuredFormat?.mainText?.text || "";
-    const sub = tidyAddr(p.structuredFormat?.secondaryText?.text || "", name);
+    const full = (p.text?.text || "").trim();
+    const name = p.structuredFormat?.mainText?.text || (full.split(",")[0] || "").trim();
+    const sub = tidyAddr(p.structuredFormat?.secondaryText?.text || (full.includes(",") ? full.slice(full.indexOf(",") + 1) : ""), name);
     if (!name && !sub) continue;
     hits.push({
       placeId: id,
@@ -177,23 +195,17 @@ async function googleAutocomplete(query: string, lat?: number, lon?: number): Pr
       distanceM: Number.isFinite(p.distanceMeters) ? p.distanceMeters : undefined,
     });
   }
-  return hits.slice(0, 8);
+  return hits.slice(0, 10);
 }
 
 async function googleTextSearch(query: string, lat?: number, lon?: number): Promise<SuggestHit[]> {
   const key = googleKey();
-  const bias = biasPoint(lat, lon);
   const body = {
     textQuery: query,
     regionCode: "au",
     languageCode: "en",
-    locationBias: {
-      circle: {
-        center: { latitude: bias.lat, longitude: bias.lon },
-        radius: 80000.0,
-      },
-    },
-    maxResultCount: 8,
+    maxResultCount: 15,
+    locationBias: locationBias(lat, lon),
   };
 
   const data = (await googleFetch("https://places.googleapis.com/v1/places:searchText", {
@@ -242,10 +254,16 @@ export async function googleSuggest(q: string, lat?: number, lon?: number): Prom
   if (query.length < 2) return [];
 
   const [autoHits, textHits] = await Promise.all([
-    googleAutocomplete(query, lat, lon).catch(() => [] as SuggestHit[]),
-    query.length >= 3 ? googleTextSearch(query, lat, lon).catch(() => [] as SuggestHit[]) : Promise.resolve([] as SuggestHit[]),
+    googleAutocomplete(query, lat, lon).catch((err) => {
+      console.warn("Google autocomplete:", err instanceof Error ? err.message : err);
+      return [] as SuggestHit[];
+    }),
+    googleTextSearch(query, lat, lon).catch((err) => {
+      console.warn("Google text search:", err instanceof Error ? err.message : err);
+      return [] as SuggestHit[];
+    }),
   ]);
-  return dedupeHits([...autoHits, ...textHits]).slice(0, 8);
+  return dedupeHits([...autoHits, ...textHits]).slice(0, 10);
 }
 
 function geocodeName(r: {
