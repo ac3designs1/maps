@@ -140,6 +140,13 @@ const server = http.createServer(async (req, res) => {
       return;
     }
 
+    if (u.pathname === "/api/config" && req.method === "GET") {
+      return send(res, 200, {
+        adsenseClient: (process.env.ADSENSE_CLIENT || "").trim(),
+        adsenseSlot: (process.env.ADSENSE_SLOT || "").trim(),
+      });
+    }
+
     if (u.pathname === "/health" && req.method === "GET") {
       return send(res, 200, { ok: true, googlePlaces: hasGoogleKey() });
     }

@@ -6,6 +6,8 @@ const STORE_KEY = "maps.trips.v1";
 const PINS_KEY  = "maps.pins.v1";
 const LAST_KEY  = "maps.lastTrip";
 const RECENT_KEY = "maps.recentPlaces";
+const PREFS_KEY = "maps.prefs.v1";
+const AD_KEY    = "maps.launchAd.v1";
 
 /* ─── state ─── */
 const S = {
@@ -38,6 +40,8 @@ const S = {
   navI: 0,
   navigating: false,
   undo: null,
+  pinKey: null,
+  pinHits: [],
 };
 
 /* ─── tiny helpers ─── */
@@ -315,6 +319,11 @@ function writeLocal(trips) {
 }
 function readPins() { try { return JSON.parse(localStorage.getItem(PINS_KEY)||"{}"); } catch { return {}; } }
 function writePins(p) { try { localStorage.setItem(PINS_KEY,JSON.stringify(p)); } catch {} }
+function readPrefs() {
+  try { return { roundtrip:false, avoidTolls:false, avoidFerries:false, ...JSON.parse(localStorage.getItem(PREFS_KEY)||"{}") }; }
+  catch { return { roundtrip:false, avoidTolls:false, avoidFerries:false }; }
+}
+function writePrefs(p) { try { localStorage.setItem(PREFS_KEY, JSON.stringify(p)); } catch {} }
 function pinHit(key) {
   const p = readPins()[key];
   if (!p||!Number.isFinite(p.lat)) return null;
@@ -347,8 +356,9 @@ function mergeTrips(a,b) {
 }
 function emptyTrip() {
   const now = Date.now();
-  return { id:uid(), title:"Untitled trip", roundtrip:false,
-    avoidTolls:false, avoidFerries:false, starred:false,
+  const prefs = readPrefs();
+  return { id:uid(), title:"Untitled trip", roundtrip:!!prefs.roundtrip,
+    avoidTolls:!!prefs.avoidTolls, avoidFerries:!!prefs.avoidFerries, starred:false,
     createdAt:now, updatedAt:now,
     stops: [{id:uid(),query:"",label:"",lat:null,lng:null},{id:uid(),query:"",label:"",lat:null,lng:null}] };
 }
@@ -505,6 +515,8 @@ function showList() {
   stopTrafficWatch();
   stopEtaWatch();
   renderContinue();
+  renderHome();
+  renderSettings();
   setThemeColor();
 }
 function showTrip() {
@@ -560,6 +572,141 @@ function renderContinue() {
   card.classList.remove("hidden");
 }
 
+function showTab(name) {
+  const tab = name === "trips" || name === "settings" ? name : "home";
+  $("homePane")?.classList.toggle("is-on", tab === "home");
+  $("tripsPane")?.classList.toggle("is-on", tab === "trips");
+  $("settingsPane")?.classList.toggle("is-on", tab === "settings");
+  document.querySelectorAll(".tab-btn").forEach(btn => btn.classList.toggle("is-on", btn.dataset.tab === tab));
+  try { localStorage.setItem("maps.tab", tab); } catch {}
+  if (tab === "settings") renderSettings();
+  if (tab === "home") renderHome();
+}
+
+function renderHome() {
+  const pins = readPins();
+  const homeSub = $("homeGoHomeSub");
+  const workSub = $("homeGoWorkSub");
+  if (homeSub) homeSub.textContent = pins.home?.label ? String(pins.home.label).split(",")[0] : "Set in Settings";
+  if (workSub) workSub.textContent = pins.work?.label ? String(pins.work.label).split(",")[0] : "Set in Settings";
+  const recents = $("homeRecents");
+  const empty = $("homeEmpty");
+  const head = $("homeRecentsHead");
+  const trips = (S.trips || []).slice(0, 5);
+  if (empty) empty.classList.toggle("hidden", trips.length > 0);
+  if (head) head.classList.toggle("hidden", trips.length === 0);
+  if (!recents) return;
+  recents.innerHTML = trips.map(t => {
+    const stats = t.durationS ? fmtDur(t.durationS) : relTime(t.updatedAt);
+    return `<button type="button" class="home-recent" data-open-trip="${t.id}">
+      <span class="home-recent-name">${esc(t.title||"Untitled trip")}</span>
+      <span class="home-recent-sub">${esc(t.preview||"No stops yet")} · ${esc(stats)}</span>
+    </button>`;
+  }).join("");
+}
+
+function renderSettings() {
+  const box = $("settingsBody");
+  if (!box) return;
+  const pins = readPins();
+  const prefs = readPrefs();
+  const home = pins.home?.label ? String(pins.home.label).split(",")[0] : "Not set";
+  const work = pins.work?.label ? String(pins.work.label).split(",")[0] : "Not set";
+  box.innerHTML = `
+    <p class="msec-label">Places</p>
+    <div class="msec">
+      <button type="button" class="mrow" data-set="home">${ico(`<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"><path d="M10 20v-6h4v6h5v-8h3L12 3 2 12h3v8z"/></svg>`)}Home<span class="mrow-sub">${esc(home)}</span></button>
+      <button type="button" class="mrow" data-set="work">${ico(`<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="7" width="20" height="14" rx="2"/><path d="M16 7V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v2"/></svg>`)}Work<span class="mrow-sub">${esc(work)}</span></button>
+    </div>
+    <p class="msec-label">New trips</p>
+    <div class="msec">
+      <button type="button" class="mrow${prefs.roundtrip?" checked":""}" data-set="round">${ico(`<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 1l4 4-4 4M7 23l-4-4 4-4"/><path d="M3 11V9a4 4 0 0 1 4-4h14M21 13v2a4 4 0 0 1-4 4H3"/></svg>`)}Round trip${chk(prefs.roundtrip)}</button>
+      <button type="button" class="mrow${prefs.avoidTolls?" checked":""}" data-set="tolls">${ico(`<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="7" width="20" height="14" rx="2"/><path d="M12 11v6M9 14h6"/></svg>`)}Avoid tolls${chk(prefs.avoidTolls)}</button>
+      <button type="button" class="mrow${prefs.avoidFerries?" checked":""}" data-set="ferries">${ico(`<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"><path d="M2 21c.6.5 1.2 1 2.5 1 2.5 0 2.5-2 5-2"/><path d="M19 11H5L3 8h18z"/></svg>`)}Avoid ferries${chk(prefs.avoidFerries)}</button>
+    </div>
+    <p class="msec-label">Data</p>
+    <div class="msec">
+      <button type="button" class="mrow" data-set="export">${ico(`<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>`)}Export backup</button>
+      <button type="button" class="mrow" data-set="import">${ico(`<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>`)}Import backup</button>
+    </div>
+    <p class="msec-label">About</p>
+    <div class="msec">
+      <button type="button" class="mrow" data-set="privacy">${ico(`<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4M12 8h.01"/></svg>`)}Privacy</button>
+      <div class="mrow">Version<span class="mrow-sub">1.0 · free, one first-open ad</span></div>
+    </div>`;
+}
+
+async function startTripToPin(key) {
+  const hit = pinHit(key);
+  if (!hit) { showTab("settings"); toast("Set this place in Settings"); return; }
+  buzz();
+  newTrip();
+  const dest = S.trip.stops.find((s, i) => i > 0) || S.trip.stops[1];
+  if (!dest) return;
+  S.focusId = dest.id;
+  await applyHit({ ...hit, here: false, kind: "pin" });
+}
+
+function pinSearchBody(key) {
+  const label = key === "home" ? "Home" : "Work";
+  return `<div class="modal-pad">
+    <p class="modal-hint">Search a place to save as ${label}.</p>
+    <input id="pinSearch" type="search" placeholder="Address or business" enterkeyhint="search" inputmode="search" autocomplete="off" spellcheck="false"/>
+  </div>
+  <div id="pinSearchHits" class="msec"></div>`;
+}
+async function savePinFromHit(key, hit) {
+  let h = hit;
+  try {
+    if (h.placeId && !Number.isFinite(h.lat)) {
+      const d = await api(`/api/place?id=${encodeURIComponent(h.placeId)}`, { timeout: 10000 });
+      if (d.hit) h = { ...h, ...d.hit };
+    }
+  } catch (e) {
+    if (!e.cancelled) toast(e.message || "Couldn't find that place");
+    return;
+  }
+  if (!Number.isFinite(h.lat) || !Number.isFinite(h.lng)) return toast("Couldn't find that place");
+  setPin(key, { label: h.label || hitName(h), lat: h.lat, lng: h.lng });
+  closeModal();
+  renderHome();
+  renderSettings();
+  toast(key === "home" ? "Home saved" : "Work saved");
+}
+
+async function maybeLaunchAd() {
+  try { if (localStorage.getItem(AD_KEY)) return; } catch { return; }
+  let client = "";
+  let slot = "";
+  try {
+    const d = await api("/api/config", { timeout: 6000 });
+    client = String(d.adsenseClient || "").trim();
+    slot = String(d.adsenseSlot || "").trim();
+  } catch { return; }
+  if (!client || !slot) return;
+  const sheet = $("launchAd");
+  const hold = $("launchAdSlot");
+  const go = $("launchAdContinue");
+  if (!sheet || !hold || !go) return;
+  hold.innerHTML = `<ins class="adsbygoogle" style="display:block;min-height:80px" data-ad-client="${esc(client)}" data-ad-slot="${esc(slot)}" data-ad-format="rectangle" data-full-width-responsive="true"></ins>`;
+  sheet.classList.remove("hidden");
+  go.disabled = true;
+  const script = document.createElement("script");
+  script.async = true;
+  script.crossOrigin = "anonymous";
+  script.src = `https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client=${encodeURIComponent(client)}`;
+  script.onload = () => {
+    try { (window.adsbygoogle = window.adsbygoogle || []).push({}); } catch {}
+  };
+  document.head.appendChild(script);
+  setTimeout(() => { go.disabled = false; }, 2200);
+  const done = () => {
+    try { localStorage.setItem(AD_KEY, String(Date.now())); } catch {}
+    sheet.classList.add("hidden");
+  };
+  go.onclick = done;
+}
+
 function renderList() {
   const q = S.filter.trim().toLowerCase();
   const rows = S.trips
@@ -574,15 +721,12 @@ function renderList() {
   empty.classList.toggle("hidden", rows.length > 0);
   const h2 = empty.querySelector("h2");
   const p  = empty.querySelector("p");
-  const btn = $("btnEmptyNew");
   if (S.trips.length && !rows.length) {
     if (h2) h2.textContent = "No matches";
     if (p) p.textContent = "Try a different name or place.";
-    btn?.classList.add("hidden");
   } else {
-    if (h2) h2.textContent = "Where to?";
-    if (p) p.innerHTML = "Add stops, then Start in Waze.";
-    btn?.classList.remove("hidden");
+    if (h2) h2.textContent = "No trips yet";
+    if (p) p.textContent = "Your saved drives show up here.";
   }
   $("tripList").innerHTML = rows.map(t => {
     const stats = t.durationS ? fmtDur(t.durationS) : relTime(t.updatedAt);
@@ -611,6 +755,8 @@ function renderList() {
     </div>`;
   }).join("");
   renderContinue();
+  renderHome();
+  renderSettings();
 }
 
 async function loadTrips() {
@@ -1567,6 +1713,34 @@ $("searchClear").onclick = () => {
 };
 $("btnNew").onclick      = newTrip;
 $("btnEmptyNew").onclick = newTrip;
+$("tabBar")?.addEventListener("click", e => {
+  const btn = e.target.closest("[data-tab]");
+  if (!btn) return;
+  buzz();
+  showTab(btn.dataset.tab);
+});
+$("homeWhere")?.addEventListener("click", () => { buzz(); newTrip(); });
+$("homeGoHome")?.addEventListener("click", () => startTripToPin("home"));
+$("homeGoWork")?.addEventListener("click", () => startTripToPin("work"));
+$("homeSeeAll")?.addEventListener("click", () => { buzz(); showTab("trips"); });
+$("homeRecents")?.addEventListener("click", e => {
+  const row = e.target.closest("[data-open-trip]");
+  if (row) openTrip(row.dataset.openTrip);
+});
+$("settingsBody")?.addEventListener("click", e => {
+  const row = e.target.closest("[data-set]");
+  if (!row) return;
+  const act = row.dataset.set;
+  const prefs = readPrefs();
+  if (act === "home") { S.pinKey = "home"; openModal("Set Home", pinSearchBody("home")); return; }
+  if (act === "work") { S.pinKey = "work"; openModal("Set Work", pinSearchBody("work")); return; }
+  if (act === "round") { writePrefs({ ...prefs, roundtrip: !prefs.roundtrip }); renderSettings(); return; }
+  if (act === "tolls") { writePrefs({ ...prefs, avoidTolls: !prefs.avoidTolls }); renderSettings(); return; }
+  if (act === "ferries") { writePrefs({ ...prefs, avoidFerries: !prefs.avoidFerries }); renderSettings(); return; }
+  if (act === "export") return exportBackup();
+  if (act === "import") return pickBackupFile();
+  if (act === "privacy") location.href = "/privacy.html";
+});
 const TRIP_DEL_W = 88;
 let tripSwipeIgnoreClick = false;
 $("tripList").addEventListener("click",e=>{
@@ -1712,8 +1886,6 @@ function moreBody() {
   <div class="msec">
     <p class="msec-label">Data</p>
     <button class="mrow" data-more="clear">${ico(`<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6M14 11v6"/></svg>`)}Clear all stops</button>
-    <button class="mrow" data-more="export">${ico(`<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>`)}Export backup</button>
-    <button class="mrow" data-more="import">${ico(`<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>`)}Import backup</button>
   </div>
   <div class="msec" style="margin-bottom:0">
     <button class="mrow danger" data-more="del">${ico(`<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6M14 11v6"/></svg>`)}Delete trip</button>
@@ -1756,8 +1928,18 @@ $("modalBody").addEventListener("click", e => {
     if (s) {
       setPin(key, { label: s.label||s.query, lat: s.lat, lng: s.lng });
       closeModal();
+      renderHome();
+      renderSettings();
       toast(`${key === "home" ? "Home" : "Work"} saved`);
     }
+    return;
+  }
+
+  const pinPick = e.target.closest("[data-pin-pick]");
+  if (pinPick && S.pinHits?.length) {
+    const hit = S.pinHits[Number(pinPick.dataset.pinPick)];
+    const key = S.pinKey;
+    if (hit && key) savePinFromHit(key, hit);
     return;
   }
 
@@ -1821,6 +2003,25 @@ $("modalBody").addEventListener("click", e => {
 });
 
 $("modalBody").addEventListener("input", e => {
+  if (e.target.id === "pinSearch") {
+    const q = e.target.value.trim();
+    clearTimeout(S.pinTimer);
+    S.pinTimer = setTimeout(async () => {
+      const box = $("pinSearchHits");
+      if (!box) return;
+      if (q.length < 2) { box.innerHTML = ""; S.pinHits = []; return; }
+      try {
+        const hits = (await lookup(q)).filter(h => !h.searchQuery && (h.placeId || Number.isFinite(h.lat)));
+        S.pinHits = hits.slice(0, 8);
+        box.innerHTML = S.pinHits.length
+          ? S.pinHits.map((h, i) => `<button type="button" class="mrow" data-pin-pick="${i}"><span>${esc(hitName(h))}<br><span style="font-size:13px;color:var(--t3)">${esc(hitAddr(h) || h.label || "")}</span></span></button>`).join("")
+          : `<div class="modal-pad"><p class="modal-hint">No results</p></div>`;
+      } catch (err) {
+        if (!err.cancelled) box.innerHTML = `<div class="modal-pad"><p class="modal-hint">Couldn't search</p></div>`;
+      }
+    }, 160);
+    return;
+  }
   if (e.target.id!=="renameTitle"||!S.trip) return;
   S.trip.title=e.target.value; scheduleSave(); updateSummary();
 });
@@ -2545,7 +2746,7 @@ document.addEventListener("touchmove", (e) => {
   if (e.touches.length > 1) return;
   const t = e.target;
   if (!(t instanceof Element)) return;
-  if (t.closest(".screen-list, .stop-list, .modal-sheet, .action-row, .suggest-box, .leaflet-container")) return;
+  if (t.closest(".screen-list, .stop-list, .modal-sheet, .action-row, .suggest-box, .leaflet-container, .tab-pane, .tab-bar, .launch-ad")) return;
   e.preventDefault();
 }, { passive: false });
 
@@ -2575,6 +2776,8 @@ nativeInit();
 ensureMap();
 locate();
 loadTrips().then(()=>{
+  try { showTab(localStorage.getItem("maps.tab") || "home"); } catch { showTab("home"); }
+  maybeLaunchAd();
   try {
     const params = new URLSearchParams(location.search);
     if (params.get("new") === "1") {
