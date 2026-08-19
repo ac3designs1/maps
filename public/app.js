@@ -257,7 +257,62 @@ function pushRecentPlace(hit) {
     const same = String(p.label||"").toLowerCase() === String(row.label||"").toLowerCase();
     return dm > 60 && !same;
   });
-  try { localStorage.setItem(RECENT_KEY, JSON.stringify([row, ...rest].slice(0, 8))); } catch {}
+  try { localStorage.setItem(RECENT_KEY, JSON.stringify([row, ...rest].slice(0, 16))); } catch {}
+}
+
+function placeNorm(s) {
+  return String(s || "").toLowerCase().replace(/[^\w\s]/g, " ").replace(/\s+/g, " ").trim();
+}
+function placeMatches(q, ...parts) {
+  const n = placeNorm(q);
+  if (n.length < 2) return false;
+  return parts.some((p) => {
+    const t = placeNorm(p);
+    return t && (t.includes(n) || n.includes(t));
+  });
+}
+function placesFromTrips() {
+  const out = [];
+  for (const t of S.records || []) {
+    for (const s of t.stops || []) {
+      if (!Number.isFinite(s.lat) || !Number.isFinite(s.lng) || isHereStop(s)) continue;
+      const label = s.label || s.query || "";
+      if (!label.trim()) continue;
+      out.push({
+        name: (s.query || s.label || "").split(",")[0].trim(),
+        sub: s.label || "",
+        label,
+        lat: s.lat,
+        lng: s.lng,
+        kind: "recent",
+      });
+    }
+  }
+  return out;
+}
+function matchLocalPlaces(q) {
+  const n = placeNorm(q);
+  if (n.length < 2) return [];
+  const hits = [];
+  if (S.here && ("your location".startsWith(n) || n === "here" || n === "me")) {
+    hits.push({
+      here: true, kind: "gps", name: "Your location",
+      sub: S.hereLabel && S.hereLabel !== "Your location" ? S.hereLabel : "",
+      label: hereDisplay(), lat: S.here.lat, lng: S.here.lng,
+    });
+  }
+  const home = pinHit("home");
+  if (home && ("home".startsWith(n) || placeMatches(q, home.label, home.name))) {
+    hits.push({ ...home, pin: "home", kind: "pin", name: "Home", sub: home.label });
+  }
+  const work = pinHit("work");
+  if (work && ("work".startsWith(n) || placeMatches(q, work.label, work.name))) {
+    hits.push({ ...work, pin: "work", kind: "pin", name: "Work", sub: work.label });
+  }
+  for (const r of [...readRecentPlaces(), ...placesFromTrips()]) {
+    if (placeMatches(q, r.name, r.label, r.sub)) hits.push({ ...r, kind: "recent" });
+  }
+  return dedupeHits(hits).slice(0, 6);
 }
 
 /* ─── screens ─── */
@@ -568,10 +623,10 @@ function renderSuggestRows(hits) {
   return hits.map((h,i) => renderSugRow(h, i)).join("");
 }
 
-function paintHits(hits) {
+function paintHits(hits, loading) {
   const box = $("suggestBox");
   S.sugI = 0;
-  box.classList.remove("is-loading");
+  box.classList.toggle("is-loading", !!loading);
   box.innerHTML = renderSuggestRows(hits);
   box._hits = hits;
   box.classList.remove("hidden");
@@ -903,19 +958,23 @@ function moveSug(delta) {
 function runSuggest(id, q) {
   cancelSuggest();
   const seq = S.suggestSeq;
+  const local = matchLocalPlaces(q);
   const box = $("suggestBox");
-  const hasSearchHits = Array.isArray(box._hits) && box._hits.length && !box.querySelector("[data-me],[data-pin],.sug-head");
-  box.classList.add("is-loading");
-  box.classList.remove("hidden");
-  if (!hasSearchHits) {
-    box.innerHTML = `<div class="sug-loading"><span class="sug-spinner"></span>Searching…</div>`;
-    box._hits = null;
+  if (local.length) {
+    paintHits(local, true);
+  } else {
+    box.classList.add("is-loading");
+    box.classList.remove("hidden");
+    if (!box._hits?.length) {
+      box.innerHTML = `<div class="sug-loading"><span class="sug-spinner"></span>Searching…</div>`;
+      box._hits = null;
+    }
+    positionSuggest();
   }
-  positionSuggest();
   S.suggestTimer = setTimeout(async () => {
     if (seq !== S.suggestSeq) return;
     try {
-      const hits = dedupeHits(await lookup(q)).slice(0, 8);
+      const hits = dedupeHits([...local, ...await lookup(q)]).slice(0, 10);
       if (seq !== S.suggestSeq || S.focusId !== id) return;
       const live = activeStopInput();
       if (live && live.value.trim() !== q) return;
@@ -923,10 +982,11 @@ function runSuggest(id, q) {
     } catch (err) {
       if (!err.cancelled && seq === S.suggestSeq && S.focusId === id) {
         $("suggestBox").classList.remove("is-loading");
-        if (!$("suggestBox")._hits?.length) paintHits([]);
+        if (local.length) paintHits(local);
+        else if (!$("suggestBox")._hits?.length) paintHits([]);
       }
     }
-  }, 140);
+  }, 120);
 }
 
 function bindStopInput(input) {
