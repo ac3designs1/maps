@@ -142,7 +142,7 @@ const server = http.createServer(async (req, res) => {
 
     if (u.pathname === "/api/config" && req.method === "GET") {
       return send(res, 200, {
-        adsenseClient: (process.env.ADSENSE_CLIENT || "").trim(),
+        adsenseClient: (process.env.ADSENSE_CLIENT || "ca-pub-6171482823199192").trim(),
         adsenseSlot: (process.env.ADSENSE_SLOT || "").trim(),
       });
     }

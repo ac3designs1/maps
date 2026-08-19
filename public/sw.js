@@ -1,4 +1,4 @@
-const CACHE = "trips-v67";
+const CACHE = "trips-v68";
 const PRECACHE = [
   "/",
   "/offline.html",
@@ -6,10 +6,10 @@ const PRECACHE = [
   "/icon-192.png",
   "/icon-512.png",
   "/icon-180.png",
-  "/styles.css?v=67",
-  "/app.js?v=67",
-  "/vendor/leaflet.css?v=67",
-  "/vendor/leaflet.js?v=67",
+  "/styles.css?v=68",
+  "/app.js?v=68",
+  "/vendor/leaflet.css?v=68",
+  "/vendor/leaflet.js?v=68",
 ];
 
 self.addEventListener("install", (event) => {

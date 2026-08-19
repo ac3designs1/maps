@@ -676,29 +676,35 @@ async function savePinFromHit(key, hit) {
 
 async function maybeLaunchAd() {
   try { if (localStorage.getItem(AD_KEY)) return; } catch { return; }
-  let client = "";
+  let client = "ca-pub-6171482823199192";
   let slot = "";
   try {
     const d = await api("/api/config", { timeout: 6000 });
-    client = String(d.adsenseClient || "").trim();
+    if (d.adsenseClient) client = String(d.adsenseClient).trim();
     slot = String(d.adsenseSlot || "").trim();
-  } catch { return; }
-  if (!client || !slot) return;
+  } catch {}
+  if (!client) return;
   const sheet = $("launchAd");
   const hold = $("launchAdSlot");
   const go = $("launchAdContinue");
   if (!sheet || !hold || !go) return;
-  hold.innerHTML = `<ins class="adsbygoogle" style="display:block;min-height:80px" data-ad-client="${esc(client)}" data-ad-slot="${esc(slot)}" data-ad-format="rectangle" data-full-width-responsive="true"></ins>`;
+  const slotAttr = slot ? ` data-ad-slot="${esc(slot)}"` : "";
+  hold.innerHTML = `<ins class="adsbygoogle" style="display:block;min-height:100px" data-ad-client="${esc(client)}"${slotAttr} data-ad-format="auto" data-full-width-responsive="true"></ins>`;
   sheet.classList.remove("hidden");
   go.disabled = true;
-  const script = document.createElement("script");
-  script.async = true;
-  script.crossOrigin = "anonymous";
-  script.src = `https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client=${encodeURIComponent(client)}`;
-  script.onload = () => {
+  const pushAd = () => {
     try { (window.adsbygoogle = window.adsbygoogle || []).push({}); } catch {}
   };
-  document.head.appendChild(script);
+  if (!document.querySelector('script[src*="adsbygoogle.js"]')) {
+    const script = document.createElement("script");
+    script.async = true;
+    script.crossOrigin = "anonymous";
+    script.src = `https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client=${encodeURIComponent(client)}`;
+    script.onload = pushAd;
+    document.head.appendChild(script);
+  } else {
+    pushAd();
+  }
   setTimeout(() => { go.disabled = false; }, 2200);
   const done = () => {
     try { localStorage.setItem(AD_KEY, String(Date.now())); } catch {}
