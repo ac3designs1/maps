@@ -107,6 +107,7 @@ async function staticFile(urlPath: string, res: http.ServerResponse) {
     res.writeHead(200, {
       "Content-Type": MIME[ext] || "application/octet-stream",
       "Cache-Control": ext === ".html" ? "no-store" : "no-cache",
+      ...(path.basename(fp) === "sw.js" ? { "Service-Worker-Allowed": "/" } : {}),
     });
     createReadStream(fp).pipe(res);
   } catch {

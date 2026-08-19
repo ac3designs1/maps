@@ -39,19 +39,19 @@ try {
   // Static
   {
     const { status, text } = await req("/");
-    if (status === 200 && text.includes("app.js?v=58") && text.includes("styles.css?v=58") && text.includes("vendor/leaflet.js") && !text.includes("unpkg.com/leaflet")) ok("GET /", "cache v=58 local leaflet");
+    if (status === 200 && text.includes("app.js?v=59") && text.includes("styles.css?v=59") && text.includes("vendor/leaflet.js") && !text.includes("unpkg.com/leaflet")) ok("GET /", "cache v=59 local leaflet");
     else fail("GET /", "status " + status);
   }
   {
-    const { status, text } = await req("/styles.css?v=58");
+    const { status, text } = await req("/styles.css?v=59");
     if (status === 200 && text.includes(".screen-planner") && text.includes("pointer-events:none") && text.includes(".action-chip.is-hot") && text.includes(".mrow.checked") && text.includes("pinch-zoom") && text.includes("calc(100% - 58px") && text.includes(".sug-row.is-on") && text.includes(".dwell-btn") && text.includes(".sug-call") && text.includes(".trip-dup") && text.includes(".trip-del-reveal") && text.includes(".btn-danger") && text.includes(".eta-closed") && text.includes(".stop-row.is-done")) ok("GET styles.css");
     else fail("GET styles.css", "status " + status);
   }
   {
-    const { status, text } = await req("/app.js?v=58");
+    const { status, text } = await req("/app.js?v=59");
     if (status === 200 && text.includes("function pinHereFirst") && text.includes("hereDisplay")) ok("GET app.js");
     else fail("GET app.js", "status " + status);
-    const guards = ["function backToList", "lockStart:isHereStop(S.trip.stops[0])", "Where to?", "readOnly", "is-hot", "function updateHereDot", "You're offline.", "function forgetLast", "isHereStop(stop) && !hit.here", "smoothFactor:0", "startTrafficWatch", "trafficDelayS", "maps.recentPlaces", "function runSuggest", "function cancelSuggest", "function matchLocalPlaces", "function queryTokens", "hit.searchQuery", "function typedQueryHit", "function duplicateTrip", "function setRecords", "function dwellMinutes", "sug-call", "data-more=\"paste\"", "data-more=\"here\"", "function confirmDeleteTrip", "trip-del-reveal", "function routeStops", "function cycleStopState", "function openLeaveModal", "hoursWeek", "window.Capacitor?.Plugins?.Geolocation", "function isNativeApp", "function nativeInit"];
+    const guards = ["function backToList", "lockStart:isHereStop(S.trip.stops[0])", "Where to?", "readOnly", "is-hot", "function updateHereDot", "You're offline.", "function forgetLast", "isHereStop(stop) && !hit.here", "smoothFactor:0", "startTrafficWatch", "trafficDelayS", "maps.recentPlaces", "function runSuggest", "function cancelSuggest", "function matchLocalPlaces", "function queryTokens", "hit.searchQuery", "function typedQueryHit", "function duplicateTrip", "function setRecords", "function dwellMinutes", "sug-call", "data-more=\"paste\"", "data-more=\"here\"", "function confirmDeleteTrip", "trip-del-reveal", "function routeStops", "function cycleStopState", "function openLeaveModal", "hoursWeek", "window.Capacitor?.Plugins?.Geolocation", "function isNativeApp", "function nativeInit", "serviceWorker.register"];
     const missing = guards.filter(s => !text.includes(s));
     if (!missing.length) ok("planner flow guards in JS");
     else fail("planner flow guards in JS", missing.join(", "));
@@ -79,12 +79,22 @@ try {
     else fail("GET icon-180.png", "status " + status);
   }
   {
-    const { status, text } = await req("/vendor/leaflet.js?v=58");
+    const { status } = await req("/icon-192.png");
+    if (status === 200) ok("GET icon-192.png");
+    else fail("GET icon-192.png", "status " + status);
+  }
+  {
+    const { status, text } = await req("/sw.js");
+    if (status === 200 && text.includes("trips-v59")) ok("GET sw.js");
+    else fail("GET sw.js", "status " + status);
+  }
+  {
+    const { status, text } = await req("/vendor/leaflet.js?v=59");
     if (status === 200 && text.length > 10000) ok("GET vendor leaflet.js", text.length + " bytes");
     else fail("GET vendor leaflet.js", "status " + status);
   }
   {
-    const { status, text } = await req("/vendor/leaflet.css?v=58");
+    const { status, text } = await req("/vendor/leaflet.css?v=59");
     if (status === 200 && text.includes(".leaflet-container")) ok("GET vendor leaflet.css");
     else fail("GET vendor leaflet.css", "status " + status);
   }
@@ -353,7 +363,7 @@ try {
   // IDs in HTML exist in JS
   {
     const html = (await req("/")).text;
-    const js = (await req("/app.js?v=58")).text;
+    const js = (await req("/app.js?v=59")).text;
     const ids = [...html.matchAll(/id="([^"]+)"/g)].map(m => m[1]);
     const missing = ids.filter(id => !js.includes('"' + id + '"') && !js.includes("'" + id + "'") && !["mapToggleIcon","mapToggleLabel","navTitle","navSub","continueTitle","continueSub","installTitle","installSub","iosShareWord"].includes(id));
     // map/list structural ids that JS must touch

@@ -94,6 +94,8 @@ const icon = png(1024, 1024, (x, y) => pinPixel(x, y, 1024, BLUE, WHITE, BLUE));
 writePng(join(outDir, "icon.png"), icon);
 writePng(join(root, "public", "icon-1024.png"), icon);
 writePng(join(root, "public", "icon-180.png"), png(180, 180, (x, y) => pinPixel(x, y, 180, BLUE, WHITE, BLUE)));
+writePng(join(root, "public", "icon-192.png"), png(192, 192, (x, y) => pinPixel(x, y, 192, BLUE, WHITE, BLUE)));
+writePng(join(root, "public", "icon-512.png"), png(512, 512, (x, y) => pinPixel(x, y, 512, BLUE, WHITE, BLUE)));
 writePng(join(outDir, "splash.png"), png(1284, 2778, (x, y) => splashPixel(x, y, 1284, 2778)));
 
 const iosIcon = join(root, "ios", "App", "App", "Assets.xcassets", "AppIcon.appiconset", "AppIcon-512@2x.png");

@@ -2319,6 +2319,9 @@ function importTripFromUrl() {
 /* ─── install prompt ─── */
 (function installPrompt() {
   if (isNativeApp()) return;
+  if ("serviceWorker" in navigator) {
+    navigator.serviceWorker.register("/sw.js").catch(() => {});
+  }
   const DISMISS_KEY = "install_dismissed";
   // Already installed as PWA — hide everything
   const isStandalone = window.matchMedia("(display-mode:standalone)").matches
@@ -2330,7 +2333,6 @@ function importTripFromUrl() {
 
   const ua = navigator.userAgent;
   const isIOS = /iP(hone|ad|od)/.test(ua) && !/CriOS/.test(ua);
-  const isAndroidOrChrome = /Android/.test(ua) || /Chrome/.test(ua);
 
   function dismiss(key) {
     localStorage.setItem(key || DISMISS_KEY, String(Date.now()));
@@ -2363,8 +2365,48 @@ function importTripFromUrl() {
     // Auto-hide after 12s
     setTimeout(() => tip.classList.add("hidden"), 13000);
 
-  } else if (isAndroidOrChrome) {
-    // Android/Chrome: listen for beforeinstallprompt
+  } else if (/Android/i.test(ua)) {
+    let deferredPrompt = null;
+    const banner = $("installBanner");
+    const title = $("installTitle");
+    const sub = $("installSub");
+    const addBtn = $("installBtn");
+    window.addEventListener("beforeinstallprompt", (e) => {
+      e.preventDefault();
+      deferredPrompt = e;
+      title.textContent = "Install Trips";
+      sub.textContent = "Add it like an app";
+      addBtn.classList.remove("hidden");
+      setTimeout(() => banner.classList.remove("hidden"), 800);
+    });
+    setTimeout(() => {
+      if (deferredPrompt || !banner.classList.contains("hidden")) return;
+      title.textContent = "Add to Home screen";
+      sub.textContent = "Chrome menu → Add to Home screen";
+      addBtn.classList.add("hidden");
+      banner.classList.remove("hidden");
+    }, 2500);
+
+    addBtn.addEventListener("click", async () => {
+      banner.classList.add("hidden");
+      if (deferredPrompt) {
+        deferredPrompt.prompt();
+        const { outcome } = await deferredPrompt.userChoice;
+        if (outcome === "accepted") dismiss(DISMISS_KEY);
+        deferredPrompt = null;
+      }
+    });
+
+    $("installDismiss").addEventListener("click", () => {
+      banner.classList.add("hidden");
+      dismiss(DISMISS_KEY);
+    });
+
+    window.addEventListener("appinstalled", () => {
+      banner.classList.add("hidden");
+    });
+  } else if (/Chrome/.test(ua)) {
+    // Desktop Chrome: system install prompt
     let deferredPrompt = null;
     window.addEventListener("beforeinstallprompt", (e) => {
       e.preventDefault();
@@ -2387,7 +2429,6 @@ function importTripFromUrl() {
       dismiss(DISMISS_KEY);
     });
 
-    // If already installed via appinstalled event
     window.addEventListener("appinstalled", () => {
       $("installBanner").classList.add("hidden");
     });

@@ -2,9 +2,16 @@
 
 Google Maps–style trip planner. No 10-stop limit. Autocomplete, optimise, save, edit anytime.
 
+**Use it on your phone (no App Store):** [https://maps-8aw4.onrender.com](https://maps-8aw4.onrender.com)
+
+- **iPhone:** Safari → Share → **Add to Home Screen**
+- **Android:** Chrome → menu → **Add to Home screen** / **Install app**
+
+Trips stay on the phone. Push to GitHub and Render updates the home-screen app on the next open.
+
 ## App Store and Play Store
 
-Native iOS + Android projects live in `ios/` and `android/`. Live UI updates (no store review) need your Render URL in `native/live-url.json`. Full steps: **[native/README.md](native/README.md)**.
+Native iOS + Android projects live in `ios/` and `android/` if you want the stores later. Full steps: **[native/README.md](native/README.md)**.
 
 ## Deploy on Render
 
