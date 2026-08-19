@@ -263,9 +263,21 @@ function pushRecentPlace(hit) {
 function placeNorm(s) {
   return String(s || "").toLowerCase().replace(/[^\w\s]/g, " ").replace(/\s+/g, " ").trim();
 }
+function queryTokens(q) {
+  if (/^\d/.test(String(q).trim())) return [];
+  return String(q).toLowerCase().split(/[^a-z0-9]+/).filter(t => t.length >= 4);
+}
+function hitCoversQuery(h, tokens) {
+  if (!tokens.length) return true;
+  const hay = `${h?.name || ""} ${h?.sub || ""} ${h?.label || ""} ${h?.searchQuery || ""}`.toLowerCase();
+  return tokens.every(t => hay.includes(t));
+}
 function placeMatches(q, ...parts) {
   const n = placeNorm(q);
   if (n.length < 2) return false;
+  const tokens = queryTokens(q);
+  const hay = parts.map(placeNorm).join(" ");
+  if (tokens.length >= 2) return tokens.every(t => hay.includes(t));
   return parts.some((p) => {
     const t = placeNorm(p);
     return t && (t.includes(n) || n.includes(t));
@@ -588,6 +600,10 @@ function sugIcon(h) {
     cls:"sug-ico-amber",
     svg:`<svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor"><path d="M20 6h-2.18A3 3 0 0 0 15 4H9a3 3 0 0 0-2.82 2H4a2 2 0 0 0-2 2v11a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2zm-5 0H9a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1z"/></svg>`
   };
+  if (h?.kind === "query") return {
+    cls:"sug-ico-blue",
+    svg:`<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3-3"/></svg>`
+  };
   if (h?.kind === "recent") return {
     cls:"sug-ico-amber",
     svg:`<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>`
@@ -682,6 +698,30 @@ async function applyHit(hit) {
   if (!hit || S.picking) return;
   S.picking = true;
   try {
+    if (hit.searchQuery && !hit.placeId && !Number.isFinite(hit.lat)) {
+      try {
+        const found = await lookup(hit.searchQuery);
+        let best = (found || []).find(h => !h.searchQuery && (h.placeId || Number.isFinite(h.lat)));
+        if (!best) {
+          const d = await api("/api/geocode", {
+            method: "POST",
+            timeout: 10000,
+            body: JSON.stringify({
+              lines: [hit.searchQuery],
+              lat: S.here?.lat ?? S.bias.lat,
+              lng: S.here?.lng ?? S.bias.lng,
+            }),
+          });
+          const gh = d.results?.[0]?.hit;
+          if (gh && (gh.placeId || Number.isFinite(gh.lat))) best = gh;
+        }
+        if (!best) { toast("Couldn't find that place"); return; }
+        hit = { ...hit, ...best, searchQuery: undefined };
+      } catch (e) {
+        if (!e.cancelled) toast(e.message || "Couldn't find that place");
+        return;
+      }
+    }
     if (hit.placeId && !Number.isFinite(hit.lat)) {
       try {
         const d = await api(`/api/place?id=${encodeURIComponent(hit.placeId)}`, { timeout: 10000 });
@@ -974,11 +1014,16 @@ function runSuggest(id, q) {
   S.suggestTimer = setTimeout(async () => {
     if (seq !== S.suggestSeq) return;
     try {
-      const hits = dedupeHits([...local, ...await lookup(q)]).slice(0, 10);
+      const tokens = queryTokens(q);
+      let hits = dedupeHits([...local, ...await lookup(q)]);
+      if (tokens.length >= 2) {
+        const tight = hits.filter(h => h.searchQuery || hitCoversQuery(h, tokens));
+        if (tight.length) hits = tight;
+      }
       if (seq !== S.suggestSeq || S.focusId !== id) return;
       const live = activeStopInput();
       if (live && live.value.trim() !== q) return;
-      paintHits(hits);
+      paintHits(hits.slice(0, 10));
     } catch (err) {
       if (!err.cancelled && seq === S.suggestSeq && S.focusId === id) {
         $("suggestBox").classList.remove("is-loading");

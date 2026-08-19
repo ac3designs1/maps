@@ -9,7 +9,22 @@ export type SuggestHit = {
   sub?: string;
   placeId?: string;
   distanceM?: number;
+  searchQuery?: string;
 };
+
+export function queryTokens(q: string) {
+  if (/^\d/.test(String(q).trim())) return [];
+  return String(q)
+    .toLowerCase()
+    .split(/[^a-z0-9]+/)
+    .filter((t) => t.length >= 4);
+}
+
+export function hitCoversQuery(h: SuggestHit, tokens: string[]) {
+  if (!tokens.length) return true;
+  const hay = `${h.name || ""} ${h.sub || ""} ${h.label || ""} ${h.searchQuery || ""}`.toLowerCase();
+  return tokens.every((t) => hay.includes(t));
+}
 
 export function tidyAddr(addr: string, name?: string) {
   let s = String(addr || "")
@@ -287,14 +302,20 @@ async function nominatimSuggest(q: string, lat?: number, lon?: number): Promise<
 function rankHits(query: string, hits: SuggestHit[], lat?: number, lon?: number) {
   const q = query.toLowerCase();
   const looksStreet = /^\d+\s/.test(query.trim());
+  const tokens = queryTokens(query);
   const bias = biasPoint(lat, lon);
   const scored = hits.map((h, i) => {
     const name = (h.name || h.label).toLowerCase();
     let score = 0;
+    if (h.searchQuery) score += 90;
     if (name === q) score += 120;
     else if (name.startsWith(q)) score += 80;
     else if (name.includes(q)) score += 40;
     else if (h.label.toLowerCase().includes(q)) score += 18;
+    if (tokens.length) {
+      if (hitCoversQuery(h, tokens)) score += 55;
+      else score -= 90;
+    }
     if (h.kind === "business" && !looksStreet) score += 22;
     if (h.kind === "address" && looksStreet) score += 28;
     if (h.placeId) score += 6;
@@ -319,7 +340,15 @@ export async function suggest(q: string, lat?: number, lon?: number): Promise<Su
   if (hasGoogleKey()) {
     try {
       const google = await googleSuggest(query, lat, lon);
-      if (google.length) return rankHits(query, google, lat, lon).slice(0, 10);
+      if (google.length) {
+        const ranked = rankHits(query, google, lat, lon);
+        const tokens = queryTokens(query);
+        if (tokens.length >= 2) {
+          const tight = ranked.filter((h) => h.searchQuery || hitCoversQuery(h, tokens));
+          if (tight.length) return tight.slice(0, 10);
+        }
+        return ranked.slice(0, 10);
+      }
     } catch (err) {
       console.warn("Google suggest fallback:", err instanceof Error ? err.message : err);
     }
@@ -333,7 +362,10 @@ export async function suggest(q: string, lat?: number, lon?: number): Promise<Su
     ...(photon.status === "fulfilled" ? photon.value : []),
     ...(nomi.status === "fulfilled" ? nomi.value : []),
   ].filter((h) => Number.isFinite(h.lat) && Number.isFinite(h.lng) && inAustralia(h.lat as number, h.lng as number));
-  return rankHits(query, dedupe(merged), lat, lon).slice(0, 8);
+  const tokens = queryTokens(query);
+  const ranked = rankHits(query, dedupe(merged), lat, lon);
+  if (tokens.length >= 2) return ranked.filter((h) => hitCoversQuery(h, tokens)).slice(0, 8);
+  return ranked.slice(0, 8);
 }
 
 export async function geocode(q: string, lat?: number, lon?: number): Promise<SuggestHit | null> {
@@ -341,10 +373,14 @@ export async function geocode(q: string, lat?: number, lon?: number): Promise<Su
   if (query.length < 2) return null;
 
   const { googleGeocode, hasGoogleKey } = await import("./google.ts");
+  const tokens = queryTokens(query);
+  const usable = (h: SuggestHit | null) =>
+    !!(h && !h.searchQuery && (h.placeId || Number.isFinite(h.lat as number)) && (tokens.length < 2 || hitCoversQuery(h, tokens)));
+
   if (hasGoogleKey()) {
     try {
       const hit = await googleGeocode(query, lat, lon);
-      if (hit) return hit;
+      if (usable(hit)) return hit;
     } catch (err) {
       console.warn("Google geocode fallback:", err instanceof Error ? err.message : err);
     }
@@ -354,7 +390,8 @@ export async function geocode(q: string, lat?: number, lon?: number): Promise<Su
     const photon = (await photonSuggest(query, lat, lon)).filter(
       (h) => Number.isFinite(h.lat) && Number.isFinite(h.lng) && inAustralia(h.lat as number, h.lng as number),
     );
-    if (photon[0]) return rankHits(query, photon, lat, lon)[0];
+    const best = rankHits(query, photon, lat, lon).find((h) => usable(h));
+    if (best) return best;
   } catch {
     /* fall through */
   }
@@ -362,7 +399,7 @@ export async function geocode(q: string, lat?: number, lon?: number): Promise<Su
     const nomi = (await nominatimSuggest(query, lat, lon)).filter(
       (h) => Number.isFinite(h.lat) && Number.isFinite(h.lng) && inAustralia(h.lat as number, h.lng as number),
     );
-    return rankHits(query, nomi, lat, lon)[0] || null;
+    return rankHits(query, nomi, lat, lon).find((h) => usable(h)) || null;
   } catch {
     return null;
   }

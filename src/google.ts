@@ -1,5 +1,5 @@
 import type { SuggestHit } from "./geo.ts";
-import { dedupeSuggestHits, placeLabel, tidyAddr } from "./geo.ts";
+import { dedupeSuggestHits, hitCoversQuery, placeLabel, queryTokens, tidyAddr } from "./geo.ts";
 
 const BIZ_TYPES = new Set([
   "establishment",
@@ -134,9 +134,9 @@ async function googleAutocomplete(query: string, lat?: number, lon?: number): Pr
   const bias = biasPoint(lat, lon);
   const body = {
     input: query,
-    includedRegionCodes: ["au"],
     languageCode: "en-AU",
     regionCode: "au",
+    includeQueryPredictions: true,
     includePureServiceAreaBusinesses: true,
     origin: { latitude: bias.lat, longitude: bias.lon },
     locationBias: australiaBias(),
@@ -148,7 +148,7 @@ async function googleAutocomplete(query: string, lat?: number, lon?: number): Pr
       "Content-Type": "application/json",
       "X-Goog-Api-Key": key,
       "X-Goog-FieldMask":
-        "suggestions.placePrediction.placeId,suggestions.placePrediction.place,suggestions.placePrediction.text,suggestions.placePrediction.structuredFormat,suggestions.placePrediction.types,suggestions.placePrediction.distanceMeters",
+        "suggestions.placePrediction.placeId,suggestions.placePrediction.place,suggestions.placePrediction.text,suggestions.placePrediction.structuredFormat,suggestions.placePrediction.types,suggestions.placePrediction.distanceMeters,suggestions.queryPrediction.text,suggestions.queryPrediction.structuredFormat",
     },
     body: JSON.stringify(body),
   }, 8000)) as {
@@ -161,11 +161,31 @@ async function googleAutocomplete(query: string, lat?: number, lon?: number): Pr
         structuredFormat?: { mainText?: { text?: string }; secondaryText?: { text?: string } };
         types?: string[];
       };
+      queryPrediction?: {
+        text?: { text?: string };
+        structuredFormat?: { mainText?: { text?: string }; secondaryText?: { text?: string } };
+      };
     }>;
   };
 
   const hits: SuggestHit[] = [];
   for (const s of data.suggestions || []) {
+    const qp = s.queryPrediction;
+    if (qp) {
+      const text = (qp.structuredFormat?.mainText?.text || qp.text?.text || "").trim();
+      if (text) {
+        hits.push({
+          kind: "query",
+          name: text,
+          sub: qp.structuredFormat?.secondaryText?.text || "",
+          label: text,
+          searchQuery: text,
+          lat: null,
+          lng: null,
+        });
+      }
+      continue;
+    }
     const p = s.placePrediction;
     if (!p) continue;
     const id = (p.placeId || p.place || "").replace(/^places\//, "");
@@ -253,7 +273,24 @@ export async function googleSuggest(q: string, lat?: number, lon?: number): Prom
       return [] as SuggestHit[];
     }),
   ]);
-  return dedupeHits([...autoHits, ...textHits]).slice(0, 10);
+
+  const tokens = queryTokens(query);
+  const queries = autoHits.filter((h) => h.searchQuery);
+  const places = dedupeHits([...textHits, ...autoHits.filter((h) => !h.searchQuery)]);
+  const used = tokens.length >= 2 ? places.filter((h) => hitCoversQuery(h, tokens)) : places;
+  const extraQuery =
+    tokens.length >= 2 && !queries.some((h) => (h.searchQuery || "").toLowerCase() === query.toLowerCase())
+      ? [{
+          kind: "query" as const,
+          name: query,
+          sub: "",
+          label: query,
+          searchQuery: query,
+          lat: null,
+          lng: null,
+        }]
+      : [];
+  return dedupeHits([...queries, ...extraQuery, ...used]).slice(0, 10);
 }
 
 function geocodeName(r: {
@@ -317,8 +354,8 @@ export async function googleGeocode(q: string, lat?: number, lon?: number): Prom
   }
 
   const fromSearch = await googleSuggest(query, lat, lon);
-  const first = fromSearch[0];
-  if (first?.placeId && !Number.isFinite(first.lat)) return (await googlePlace(first.placeId)) || null;
+  const first = fromSearch.find((h) => !h.searchQuery && (h.placeId || Number.isFinite(h.lat as number)));
+  if (first?.placeId && !Number.isFinite(first.lat as number)) return (await googlePlace(first.placeId)) || null;
   return first || null;
 }
 

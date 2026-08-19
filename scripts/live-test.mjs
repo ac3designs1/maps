@@ -39,19 +39,19 @@ try {
   // Static
   {
     const { status, text } = await req("/");
-    if (status === 200 && text.includes("app.js?v=46") && text.includes("styles.css?v=46") && text.includes("vendor/leaflet.js") && !text.includes("unpkg.com/leaflet")) ok("GET /", "cache v=46 local leaflet");
+    if (status === 200 && text.includes("app.js?v=47") && text.includes("styles.css?v=47") && text.includes("vendor/leaflet.js") && !text.includes("unpkg.com/leaflet")) ok("GET /", "cache v=47 local leaflet");
     else fail("GET /", "status " + status);
   }
   {
-    const { status, text } = await req("/styles.css?v=46");
+    const { status, text } = await req("/styles.css?v=47");
     if (status === 200 && text.includes(".screen-planner") && text.includes("pointer-events:none") && text.includes(".action-chip.is-hot") && text.includes(".mrow.checked") && text.includes("pinch-zoom") && text.includes("calc(100% - 58px") && text.includes(".sug-row.is-on")) ok("GET styles.css");
     else fail("GET styles.css", "status " + status);
   }
   {
-    const { status, text } = await req("/app.js?v=46");
+    const { status, text } = await req("/app.js?v=47");
     if (status === 200 && text.includes("function pinHereFirst") && text.includes("hereDisplay")) ok("GET app.js");
     else fail("GET app.js", "status " + status);
-    const guards = ["function backToList", "lockStart:isHereStop(S.trip.stops[0])", "Where to?", "readOnly", "is-hot", "function updateHereDot", "You're offline.", "function forgetLast", "isHereStop(stop) && !hit.here", "smoothFactor:0", "startTrafficWatch", "trafficDelayS", "maps.recentPlaces", "function runSuggest", "function cancelSuggest", "function matchLocalPlaces"];
+    const guards = ["function backToList", "lockStart:isHereStop(S.trip.stops[0])", "Where to?", "readOnly", "is-hot", "function updateHereDot", "You're offline.", "function forgetLast", "isHereStop(stop) && !hit.here", "smoothFactor:0", "startTrafficWatch", "trafficDelayS", "maps.recentPlaces", "function runSuggest", "function cancelSuggest", "function matchLocalPlaces", "function queryTokens", "hit.searchQuery"];
     const missing = guards.filter(s => !text.includes(s));
     if (!missing.length) ok("planner flow guards in JS");
     else fail("planner flow guards in JS", missing.join(", "));
@@ -79,12 +79,12 @@ try {
     else fail("GET icon-180.png", "status " + status);
   }
   {
-    const { status, text } = await req("/vendor/leaflet.js?v=46");
+    const { status, text } = await req("/vendor/leaflet.js?v=47");
     if (status === 200 && text.length > 10000) ok("GET vendor leaflet.js", text.length + " bytes");
     else fail("GET vendor leaflet.js", "status " + status);
   }
   {
-    const { status, text } = await req("/vendor/leaflet.css?v=46");
+    const { status, text } = await req("/vendor/leaflet.css?v=47");
     if (status === 200 && text.includes(".leaflet-container")) ok("GET vendor leaflet.css");
     else fail("GET vendor leaflet.css", "status " + status);
   }
@@ -110,7 +110,7 @@ try {
   {
     const { status, json } = await req("/api/suggest?q=Bunnings&lat=-33.8688&lon=151.2093");
     const n = json?.hits?.length || 0;
-    const okHits = n > 0 && json.hits.every(h => h.label && (Number.isFinite(h.lat) || h.placeId));
+    const okHits = n > 0 && json.hits.every(h => h.label && (Number.isFinite(h.lat) || h.placeId || h.searchQuery));
     if (status === 200 && okHits) ok("suggest Bunnings", n + " hits");
     else fail("suggest Bunnings", "status " + status + " hits " + n);
   }
@@ -125,6 +125,14 @@ try {
     const labels = (json?.hits || []).map(h => h.label.toLowerCase());
     if (labels.some(l => l.includes("opera") || l.includes("sydney"))) ok("suggest Opera House");
     else fail("suggest Opera House", labels.slice(0, 3).join(" | ") || "no hits");
+  }
+  {
+    const { status, json } = await req("/api/suggest?q=central%20coast%20rubber&lat=-33.25&lon=151.55");
+    const hits = json?.hits || [];
+    const blob = (h) => `${h.name || ""} ${h.label || ""} ${h.searchQuery || ""}`.toLowerCase();
+    const junk = hits.filter(h => /polytec|grammar school|adventist|council depot/.test(blob(h)) && !blob(h).includes("rubber"));
+    if (status === 200 && !junk.length) ok("suggest rubber company", hits.length ? blob(hits[0]).slice(0, 60) : "no false prefix matches");
+    else fail("suggest rubber company", junk.slice(0, 3).map(h => h.label).join(" | ") || "status " + status);
   }
   {
     const { status, json } = await req("/api/place");
@@ -345,7 +353,7 @@ try {
   // IDs in HTML exist in JS
   {
     const html = (await req("/")).text;
-    const js = (await req("/app.js?v=46")).text;
+    const js = (await req("/app.js?v=47")).text;
     const ids = [...html.matchAll(/id="([^"]+)"/g)].map(m => m[1]);
     const missing = ids.filter(id => !js.includes('"' + id + '"') && !js.includes("'" + id + "'") && !["mapToggleIcon","mapToggleLabel","navTitle","navSub","continueTitle","continueSub","installTitle","installSub","iosShareWord"].includes(id));
     // map/list structural ids that JS must touch
