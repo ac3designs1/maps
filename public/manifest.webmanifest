@@ -4,6 +4,7 @@
   "short_name": "Trips",
   "description": "Plan a drive, optimise stops, open in Waze.",
   "display": "standalone",
+  "display_override": ["standalone"],
   "start_url": "/",
   "scope": "/",
   "orientation": "portrait",
@@ -27,6 +28,14 @@
       "sizes": "512x512",
       "type": "image/png",
       "purpose": "maskable"
+    }
+  ],
+  "shortcuts": [
+    {
+      "name": "New trip",
+      "short_name": "New trip",
+      "url": "/?new=1",
+      "icons": [{ "src": "icon-192.png", "sizes": "192x192" }]
     }
   ]
 }

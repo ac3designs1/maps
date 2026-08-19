@@ -50,6 +50,10 @@ function buzz(ms = 8) { try { navigator.vibrate?.(ms); } catch {} }
 function isNativeApp() {
   try { return !!window.Capacitor?.isNativePlatform?.(); } catch { return false; }
 }
+function isStandalonePwa() {
+  return window.matchMedia("(display-mode:standalone)").matches
+    || window.navigator.standalone === true;
+}
 function esc(s) {
   return String(s ?? "").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/"/g,"&quot;");
 }
@@ -462,7 +466,14 @@ function queryTokens(q) {
 }
 function typedQueryHit(q) {
   const query = String(q || "").trim();
-  return { kind: "query", name: query, sub: "", label: query, searchQuery: query, lat: null, lng: null };
+  return { kind: "query", name: query, sub: "Search this address", label: query, searchQuery: query, lat: null, lng: null };
+}
+function withTypedQuery(query, hits) {
+  const q = String(query || "").trim();
+  const list = Array.isArray(hits) ? hits.slice() : [];
+  if (q.length < 2) return list;
+  if (list.some(h => (h.searchQuery || "").toLowerCase() === q.toLowerCase())) return list;
+  return [...list, typedQueryHit(q)];
 }
 function hitCoversQuery(h, tokens) {
   if (!tokens.length) return true;
@@ -607,8 +618,8 @@ function renderList() {
     if (p) p.textContent = "Try a different name or place.";
     btn?.classList.add("hidden");
   } else {
-    if (h2) h2.textContent = "No trips yet";
-    if (p) p.innerHTML = "Add addresses, optimise your route,<br>and navigate stop by stop.";
+    if (h2) h2.textContent = "Where to?";
+    if (p) p.innerHTML = "Add stops, then Start in Waze.";
     btn?.classList.remove("hidden");
   }
   $("tripList").innerHTML = rows.map(t => {
@@ -852,9 +863,36 @@ function renderSugRow(h, i) {
   </div>`;
 }
 
+function paintSearchError(q, local) {
+  if (local?.length) { paintHits(withTypedQuery(q, local)); return; }
+  const box = $("suggestBox");
+  box.classList.remove("is-loading");
+  const typed = String(q || "").trim().length >= 2 ? typedQueryHit(q.trim()) : null;
+  box.innerHTML = `<div class="sug-empty">Couldn't search. <button type="button" class="sug-retry">Try again</button></div>${typed ? renderSugRow(typed, 0) : ""}`;
+  box._hits = typed ? [typed] : [];
+  box.classList.remove("hidden");
+  box.querySelector(".sug-retry")?.addEventListener("click", (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    const id = S.focusId;
+    const inp = activeStopInput();
+    if (id && inp) runSuggest(id, inp.value.trim());
+  });
+  positionSuggest();
+}
+
+function sugSkeleton() {
+  return `<div class="sug-skel">${[0,1,2].map(() => `<div class="sug-skel-row"><span class="sug-skel-ico"></span><span class="sug-skel-lines"><i></i><i></i></span></div>`).join("")}</div>`;
+}
+
 function renderSuggestRows(hits) {
-  if (!hits.length) return `<div class="sug-empty">No results found</div>`;
-  return hits.map((h,i) => renderSugRow(h, i)).join("");
+  const list = Array.isArray(hits) ? hits : [];
+  const places = list.filter(h => h.kind !== "query");
+  const typed = list.filter(h => h.kind === "query");
+  if (!places.length) {
+    return `<div class="sug-empty">No results found</div>${typed.map((h, i) => renderSugRow(h, i)).join("")}`;
+  }
+  return list.map((h, i) => renderSugRow(h, i)).join("");
 }
 
 function paintHits(hits, loading) {
@@ -1266,7 +1304,7 @@ function runSuggest(id, q) {
     box.classList.add("is-loading");
     box.classList.remove("hidden");
     if (!box._hits?.length) {
-      box.innerHTML = `<div class="sug-loading"><span class="sug-spinner"></span>Searching…</div>`;
+      box.innerHTML = sugSkeleton();
       box._hits = null;
     }
     positionSuggest();
@@ -1274,11 +1312,8 @@ function runSuggest(id, q) {
   S.suggestTimer = setTimeout(async () => {
     if (seq !== S.suggestSeq) return;
     try {
-      let hits = dedupeHits([...local, ...await lookup(q)]);
       const query = q.trim();
-      if (query.length >= 2 && !hits.some(h => (h.searchQuery || "").toLowerCase() === query.toLowerCase())) {
-        hits = [typedQueryHit(query), ...hits];
-      }
+      let hits = withTypedQuery(query, dedupeHits([...local, ...await lookup(q)]));
       const tokens = queryTokens(q);
       if (tokens.length >= 2) {
         const tight = hits.filter(h => h.searchQuery || hitCoversQuery(h, tokens));
@@ -1287,12 +1322,11 @@ function runSuggest(id, q) {
       if (seq !== S.suggestSeq || S.focusId !== id) return;
       const live = activeStopInput();
       if (live && live.value.trim() !== q) return;
-      paintHits(hits.slice(0, 10));
+      const places = hits.filter(h => h.kind !== "query");
+      paintHits(withTypedQuery(query, places.slice(0, 9)));
     } catch (err) {
       if (!err.cancelled && seq === S.suggestSeq && S.focusId === id) {
-        $("suggestBox").classList.remove("is-loading");
-        if (local.length) paintHits(local);
-        else if (!$("suggestBox")._hits?.length) paintHits([]);
+        paintSearchError(q, local);
       }
     }
   }, 120);
@@ -1475,6 +1509,7 @@ $("stopList").addEventListener("pointerdown", e => {
 /* ─── action bar ─── */
 $("btnAddStop").onclick = () => {
   if (!S.trip) return;
+  buzz();
   const stops = S.trip.stops;
   const destLike = !S.trip.roundtrip && stops.length >= 2;
   const neu = { id:uid(), query:"", label:"", lat:null, lng:null };
@@ -1507,6 +1542,7 @@ $("btnOptimise").onclick = () => {
   pinHereFirst();
   syncStops(true);
   if (routeStops().length<3) return toast("Add at least 3 places first");
+  buzz();
   $("btnOptimise").classList.add("loading");
   _analytics?.ping("optimise", { stops: routeStops().length });
   scheduleRoute(true);
@@ -1530,7 +1566,10 @@ $("btnMapToggle").onclick = () => {
 /* ─── start / nav ─── */
 $("btnStart").onclick = () => {
   if (routeStops().length < 2) return toast("Add at least two places first");
-  S.navigating=true; S.navI=0; updateNav(); drawMap(true); goLeg();
+  buzz();
+  S.navigating=true; S.navI=0; updateNav(); drawMap(true);
+  toast("Open Waze to navigate");
+  goLeg();
   _analytics?.ping("navigate", { stops: routeStops().length });
 };
 $("summaryTap")?.addEventListener("click", openLeaveModal);
@@ -1746,6 +1785,7 @@ $("modalBody").addEventListener("click", e => {
     const fn = pendingConfirm;
     pendingConfirm = null;
     closeModal();
+    buzz();
     fn?.();
     return;
   }
@@ -1944,6 +1984,12 @@ async function routeNow(optimize, silent) {
       avoidTolls:!!S.trip.avoidTolls, avoidFerries:!!S.trip.avoidFerries,
     })});
     if (seq!==S.routeSeq || !S.trip) return;
+    const geom = data?.geometry;
+    const legs = data?.legs;
+    if (!Array.isArray(geom) || geom.length < 2 || !Array.isArray(legs) || !legs.length) {
+      if (!silent) toast("Couldn't build the drive. Try again.");
+      return;
+    }
     if (optimize&&Array.isArray(data.order)&&data.order.length===pts.length) {
       const geocodedIds = new Set(pts.map(p=>p.id));
       const reordered   = data.order.map(i=>pts[i]);
@@ -1966,7 +2012,7 @@ async function routeNow(optimize, silent) {
     drawMap(!silent); scheduleSave();
   } catch(err) {
     if (seq!==S.routeSeq||err.cancelled) return;
-    if (!silent) toast(err.message);
+    if (!silent) toast(err.message || "Couldn't build the drive. Try again.");
   } finally {
     if (seq===S.routeSeq) {
       S.routing=false;
@@ -2319,6 +2365,11 @@ function importTripFromUrl() {
 /* ─── install prompt ─── */
 (function installPrompt() {
   if (isNativeApp()) return;
+  if (isStandalonePwa()) {
+    document.documentElement.classList.add("is-standalone");
+    if ("serviceWorker" in navigator) navigator.serviceWorker.register("/sw.js").catch(() => {});
+    return;
+  }
   if ("serviceWorker" in navigator) {
     navigator.serviceWorker.register("/sw.js").catch(() => {});
   }
@@ -2541,4 +2592,14 @@ function nativeInit() {
 nativeInit();
 ensureMap();
 locate();
-loadTrips().then(()=>{ if(!importTripFromUrl()) renderContinue(); }).catch(()=>{});
+loadTrips().then(()=>{
+  try {
+    const params = new URLSearchParams(location.search);
+    if (params.get("new") === "1") {
+      history.replaceState(history.state, "", location.pathname || "/");
+      newTrip();
+      return;
+    }
+  } catch {}
+  if (!importTripFromUrl()) renderContinue();
+}).catch(()=>{});

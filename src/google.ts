@@ -1,5 +1,5 @@
 import type { SuggestHit } from "./geo.ts";
-import { dedupeSuggestHits, distinctiveTokens, hitCoversQuery, placeLabel, tidyAddr, typedQueryHit } from "./geo.ts";
+import { dedupeSuggestHits, distinctiveTokens, hitCoversQuery, placeLabel, tidyAddr } from "./geo.ts";
 
 const BIZ_TYPES = new Set([
   "establishment",
@@ -476,11 +476,10 @@ export async function googleSuggest(q: string, lat?: number, lon?: number): Prom
     }),
   ]);
 
-  const queries = autoHits.filter((h) => h.searchQuery);
   const autoPlaces = autoHits.filter((h) => !h.searchQuery);
   const rare = distinctiveTokens(query);
   const autoKeep = rare.length ? autoPlaces.filter((h) => hitCoversQuery(h, rare)) : autoPlaces;
-  return dedupeHits([typedQueryHit(query), ...queries, ...textHits, ...autoKeep]).slice(0, 10);
+  return dedupeHits([...textHits, ...autoKeep]).slice(0, 10);
 }
 
 function geocodeName(r: {

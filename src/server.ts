@@ -161,8 +161,12 @@ const server = http.createServer(async (req, res) => {
       const q = u.searchParams.get("q") || "";
       const lat = Number(u.searchParams.get("lat"));
       const lon = Number(u.searchParams.get("lon"));
-      const hits = await suggest(q, Number.isFinite(lat) ? lat : undefined, Number.isFinite(lon) ? lon : undefined);
-      return send(res, 200, { hits });
+      try {
+        const hits = await suggest(q, Number.isFinite(lat) ? lat : undefined, Number.isFinite(lon) ? lon : undefined);
+        return send(res, 200, { hits });
+      } catch {
+        return send(res, 502, { error: "Couldn't search. Try again." });
+      }
     }
 
     if (u.pathname === "/api/place" && req.method === "GET") {
@@ -232,6 +236,9 @@ const server = http.createServer(async (req, res) => {
               avoidTolls: !!body.avoidTolls,
               avoidFerries: !!body.avoidFerries,
             });
+        if (!result?.geometry || result.geometry.length < 2 || !result.legs?.length) {
+          return send(res, 502, { error: "Couldn't build the drive. Try again." });
+        }
         return send(res, 200, result);
       } catch (err) {
         const raw = err instanceof Error ? err.message : String(err);

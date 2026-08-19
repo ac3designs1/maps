@@ -141,7 +141,7 @@ body, .screen-list, .screen-planner, .sheet, .modal {
   line-height:1;
 }
 .list-title h1 {
-  margin:5px 0 0; font-size:34px; font-weight:800;
+  margin:0; font-size:34px; font-weight:800;
   letter-spacing:-.04em; line-height:1; color:var(--t1);
 }
 .fab-new {
@@ -347,7 +347,7 @@ body, .screen-list, .screen-planner, .sheet, .modal {
 @keyframes sugBar { from { background-position:-40% 0; } to { background-position:140% 0; } }
 .sug-row {
   display:flex; align-items:center; gap:12px;
-  padding:10px 14px; width:100%; text-align:left; background:none;
+  min-height:44px; padding:10px 14px; width:100%; text-align:left; background:none;
   border-bottom:.5px solid var(--border2);
   transition:background .07s; -webkit-user-select:none; user-select:none;
   touch-action:manipulation;
@@ -377,7 +377,7 @@ body, .screen-list, .screen-planner, .sheet, .modal {
 .sug-hours.sug-open { color:var(--green); }
 .sug-hours.sug-closed { color:var(--red); }
 .sug-call {
-  width:40px; height:40px; flex-shrink:0; border-radius:12px;
+  width:44px; height:44px; flex-shrink:0; border-radius:12px;
   display:flex; align-items:center; justify-content:center;
   color:var(--blue); background:rgba(26,115,232,.1);
   -webkit-tap-highlight-color:transparent;
@@ -388,6 +388,28 @@ body, .screen-list, .screen-planner, .sheet, .modal {
   letter-spacing:.08em; text-transform:uppercase; color:var(--t3);
 }
 .sug-empty { padding:18px 16px; text-align:center; color:var(--t3); font-size:14px; }
+.sug-retry {
+  display:inline-flex; align-items:center; font:inherit; font-weight:700;
+  color:var(--blue); background:none; padding:8px 4px; min-height:44px;
+}
+.sug-skel { padding:4px 0; }
+.sug-skel-row {
+  display:flex; align-items:center; gap:12px;
+  min-height:44px; padding:10px 14px;
+}
+.sug-skel-ico {
+  width:34px; height:34px; border-radius:10px; flex-shrink:0;
+  background:var(--card2);
+  animation:sugPulse 1.1s ease-in-out infinite;
+}
+.sug-skel-lines { flex:1; display:flex; flex-direction:column; gap:6px; }
+.sug-skel-lines i {
+  display:block; height:10px; border-radius:6px; background:var(--card2);
+  animation:sugPulse 1.1s ease-in-out infinite;
+}
+.sug-skel-lines i:first-child { width:52%; }
+.sug-skel-lines i:last-child { width:78%; height:8px; }
+@keyframes sugPulse { 50% { opacity:.55; } }
 .sug-loading {
   padding:16px; display:flex; align-items:center; justify-content:center; gap:8px;
   color:var(--t3); font-size:14px;
@@ -412,7 +434,7 @@ body, .screen-list, .screen-planner, .sheet, .modal {
 }
 .sheet.snap-collapsed { height:78px; }
 .sheet.snap-mid       { height:52%; }
-.sheet.snap-full      { height:calc(100% - 58px - var(--sat)); }
+.sheet.snap-full      { height:calc(100% - 58px - var(--sat) - var(--kb)); min-height:180px; }
 .sheet.no-transition  { transition:none; }
 
 /* Handle */
@@ -503,7 +525,7 @@ body, .screen-list, .screen-planner, .sheet, .modal {
 
 /* Stop row — card style */
 .stop-row {
-  display:grid; grid-template-columns:36px 1fr 36px 36px;
+  display:grid; grid-template-columns:44px 1fr 44px 44px;
   align-items:start; min-height:50px;
   border-radius:12px;
   transition:background .12s;
@@ -565,13 +587,13 @@ button.stop-dot:disabled { cursor:default; }
 .dwell-btn {
   font: inherit; font-size:11px; font-weight:600;
   color:var(--t3); background:none;
-  padding:0; letter-spacing:.01em;
+  padding:10px 4px; min-height:44px; letter-spacing:.01em;
 }
 .dwell-btn:active { color:var(--blue); }
 
 /* Grip + delete */
 .grip-btn, .del-btn {
-  width:40px; height:48px; margin-top:2px;
+  width:44px; height:48px; margin-top:2px;
   display:flex; align-items:center; justify-content:center;
   color:var(--t3); border-radius:10px;
   transition:color .12s, background .12s;
@@ -777,7 +799,12 @@ button.stop-dot:disabled { cursor:default; }
 }
 html.is-native .install-banner,
 html.is-native .ios-tooltip,
-html.is-native .android-tooltip { display:none !important; }
+html.is-native .android-tooltip,
+html.is-native .install-hint,
+html.is-standalone .install-banner,
+html.is-standalone .ios-tooltip,
+html.is-standalone .android-tooltip,
+html.is-standalone .install-hint { display:none !important; }
 
 @keyframes slideUpBanner { from { opacity:0; transform:translateY(16px); } to { opacity:1; transform:none; } }
 .install-icon {

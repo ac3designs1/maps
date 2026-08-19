@@ -45,7 +45,14 @@ export function hitCoversQuery(h: SuggestHit, tokens: string[]) {
 
 export function typedQueryHit(query: string): SuggestHit {
   const q = query.trim();
-  return { kind: "query", name: q, sub: "", label: q, searchQuery: q, lat: null, lng: null };
+  return { kind: "query", name: q, sub: "Search this address", label: q, searchQuery: q, lat: null, lng: null };
+}
+
+export function withTypedQuery(query: string, hits: SuggestHit[]): SuggestHit[] {
+  const q = String(query || "").trim();
+  const list = Array.isArray(hits) ? hits.filter((h) => (h.searchQuery || "").toLowerCase() !== q.toLowerCase() || h.kind !== "query") : [];
+  if (q.length < 2) return list;
+  return [...list, typedQueryHit(q)];
 }
 
 export function tidyAddr(addr: string, name?: string) {
@@ -329,7 +336,7 @@ function rankHits(query: string, hits: SuggestHit[], lat?: number, lon?: number)
   const scored = hits.map((h, i) => {
     const name = (h.name || h.label).toLowerCase();
     let score = 0;
-    if (h.searchQuery) score += 90;
+    if (h.searchQuery) score += 12;
     if (name === q) score += 120;
     else if (name.startsWith(q)) score += 80;
     else if (name.includes(q)) score += 40;
@@ -338,7 +345,8 @@ function rankHits(query: string, hits: SuggestHit[], lat?: number, lon?: number)
       if (hitCoversQuery(h, tokens)) score += 55;
       else score -= 90;
     }
-    if (h.kind === "business" && !looksStreet) score += 22;
+    if (h.kind === "business" && !looksStreet) score += 48;
+    if (h.kind === "address" && !looksStreet) score -= 12;
     if (h.kind === "address" && looksStreet) score += 28;
     if (h.placeId) score += 6;
     score -= i * 0.4;
@@ -362,7 +370,7 @@ export async function suggest(q: string, lat?: number, lon?: number): Promise<Su
   if (hasGoogleKey()) {
     try {
       const google = await googleSuggest(query, lat, lon);
-      if (google.length) return rankHits(query, google, lat, lon).slice(0, 10);
+      if (google.length) return withTypedQuery(query, rankHits(query, google, lat, lon).slice(0, 9));
     } catch (err) {
       console.warn("Google suggest fallback:", err instanceof Error ? err.message : err);
     }
@@ -376,7 +384,7 @@ export async function suggest(q: string, lat?: number, lon?: number): Promise<Su
     ...(photon.status === "fulfilled" ? photon.value : []),
     ...(nomi.status === "fulfilled" ? nomi.value : []),
   ].filter((h) => Number.isFinite(h.lat) && Number.isFinite(h.lng) && inAustralia(h.lat as number, h.lng as number));
-  return rankHits(query, dedupe([typedQueryHit(query), ...merged]), lat, lon).slice(0, 8);
+  return withTypedQuery(query, rankHits(query, dedupe(merged), lat, lon).slice(0, 8));
 }
 
 export async function geocode(q: string, lat?: number, lon?: number): Promise<SuggestHit | null> {
