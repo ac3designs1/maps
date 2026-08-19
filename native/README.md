@@ -38,9 +38,22 @@ Package id: `com.ac3designs.trips`
 
 Data safety (honest answers for this app): location (to start a trip), on-device trip data, no account, no ads, data sent to your server and Google Maps Platform for search/routes.
 
-## iPhone (needs a Mac)
+## iPhone from Windows (Codemagic)
 
-Windows cannot archive for the App Store.
+You cannot archive with Xcode on this PC. Use [Codemagic](https://codemagic.io) (already connected to `ac3designs1/maps`).
+
+1. Apple Developer Program (~A$99/year) and an app in [App Store Connect](https://appstoreconnect.apple.com) with bundle id `com.ac3designs.trips`.
+2. Codemagic → Team integrations:
+   - **App Store Connect API key**, name it exactly `codemagic`
+   - **Apple Developer Portal** (lets Codemagic create the signing cert)
+3. Click **Check for configuration files**, then start the **Trips iOS (TestFlight)** workflow.
+4. The first successful build lands in **TestFlight**. App Review still needs screenshots and the privacy URL in App Store Connect.
+
+`codemagic.yaml` is in the repo root. Do not turn on App Review auto-submit until the listing is filled in.
+
+## iPhone on a Mac
+
+You can still archive locally if you have a Mac:
 
 1. Copy this repo onto a Mac. Install Xcode and CocoaPods (Capacitor 8 uses SPM; CocoaPods is optional).
 2. `npm install` then `npm run native:sync`

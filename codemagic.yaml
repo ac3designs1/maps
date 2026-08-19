@@ -1,0 +1,63 @@
+# Codemagic cloud builds for Trips (Windows → App Store).
+# After pushing this file: Codemagic → Check for configuration files → Start new build.
+#
+# One-time setup in Codemagic (not in this file):
+# 1. Team settings → Integrations → App Store Connect API key, name it exactly: codemagic
+# 2. Apple Developer Portal integration (so Codemagic can create the App Store cert + profile)
+# 3. Create the app in App Store Connect with bundle id com.ac3designs.trips
+# 4. Optional env var APP_STORE_APP_ID = the number from App Store Connect → App Information
+#
+# First upload goes to TestFlight, not straight to App Review.
+
+workflows:
+  ios-app-store:
+    name: Trips iOS (TestFlight)
+    max_build_duration: 120
+    instance_type: mac_mini_m2
+    integrations:
+      app_store_connect: codemagic
+    environment:
+      ios_signing:
+        distribution_type: app_store
+        bundle_identifier: com.ac3designs.trips
+      vars:
+        XCODE_PROJECT: ios/App/App.xcodeproj
+        XCODE_SCHEME: App
+      node: 22
+      xcode: latest
+    scripts:
+      - name: Install npm dependencies
+        script: npm install
+      - name: Sync Capacitor iOS
+        script: npx cap sync ios
+      - name: Set up code signing
+        script: xcode-project use-profiles
+      - name: Increment build number
+        script: |
+          cd ios/App
+          BUILD_TO_USE="${BUILD_NUMBER}"
+          if [ -n "${APP_STORE_APP_ID:-}" ]; then
+            LATEST="$(app-store-connect get-latest-testflight-build-number "$APP_STORE_APP_ID" 2>/dev/null || true)"
+            if [ -z "$LATEST" ] || [ "$LATEST" = "None" ]; then
+              LATEST="$(app-store-connect get-latest-app-store-build-number "$APP_STORE_APP_ID" 2>/dev/null || echo 0)"
+            fi
+            case "$LATEST" in
+              ''|*[!0-9]*) LATEST=0 ;;
+            esac
+            BUILD_TO_USE="$((LATEST + 1))"
+          fi
+          agvtool new-version -all "$BUILD_TO_USE"
+      - name: Build IPA
+        script: |
+          xcode-project build-ipa \
+            --project "$XCODE_PROJECT" \
+            --scheme "$XCODE_SCHEME"
+    artifacts:
+      - build/ios/ipa/*.ipa
+      - ios/App/build/ios/ipa/*.ipa
+      - /tmp/xcodebuild_logs/*.log
+    publishing:
+      app_store_connect:
+        auth: integration
+        submit_to_testflight: true
+        submit_to_app_store: false
