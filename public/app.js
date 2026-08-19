@@ -899,7 +899,9 @@ function hideSuggest() {
   box.classList.add("hidden");
   box.classList.remove("is-loading");
   box.innerHTML=""; box._hits=null;
-  $("stopList")?.appendChild(box);
+  box.style.top = "";
+  box.style.bottom = "";
+  box.style.maxHeight = "";
   S.sugI = 0;
 }
 
@@ -909,15 +911,24 @@ function activeStopInput() {
   return el?.matches?.(".stop-input") ? el : null;
 }
 
-function dockSuggest() {
+function positionSuggest() {
   const box = $("suggestBox");
   const input = activeStopInput();
-  const row = input?.closest(".stop-row");
-  if (!box || box.classList.contains("hidden") || !row) return;
-  row.after(box);
+  if (!box || !input || box.classList.contains("hidden")) return;
+  const r = input.getBoundingClientRect();
+  const viewH = window.visualViewport?.height || window.innerHeight;
+  const top = r.bottom + 8;
+  const avail = Math.max(72, viewH - top - 8);
+  box.style.top = `${Math.round(top)}px`;
+  box.style.bottom = "auto";
+  box.style.maxHeight = `${Math.round(Math.min(avail, 280))}px`;
 }
-function positionSuggest() { dockSuggest(); }
-function pinSuggestSoon() { dockSuggest(); }
+function pinSuggestSoon() {
+  positionSuggest();
+  requestAnimationFrame(positionSuggest);
+  clearTimeout(S.sugPinTimer);
+  S.sugPinTimer = setTimeout(positionSuggest, 300);
+}
 
 async function lookup(q) {
   S.suggestAc?.abort();
@@ -1197,9 +1208,8 @@ $("suggestBox").addEventListener("click", async e => {
   await pickSugRow(btn);
 });
 
-document.addEventListener("pointerdown", e => {
-  if (e.target.closest("#suggestBox") || e.target.closest(".stop-input") || e.target.closest(".stop-row")) return;
-  if (!$("tripScreen")?.classList.contains("is-open")) return;
+document.addEventListener("click", e => {
+  if (e.target.closest("#suggestBox")||e.target.closest(".stop-input")) return;
   hideSuggest();
 });
 
@@ -1308,13 +1318,9 @@ function updateRowMeta() {
 function syncStops(force) {
   const list = $("stopList");
   const trip = S.trip;
-  if (!trip) {
-    [...list.querySelectorAll(":scope > .stop-row")].forEach(r => r.remove());
-    hideSuggest();
-    return;
-  }
+  if (!trip) { list.innerHTML=""; return; }
   const ids = trip.stops.map(s=>s.id);
-  const existing = [...list.querySelectorAll(":scope > .stop-row")];
+  const existing = [...list.children];
   if (force || existing.map(r=>r.dataset.id).join()!==ids.join()) {
     const map = new Map(existing.map(r=>[r.dataset.id,r]));
     const next = [];
@@ -1326,7 +1332,6 @@ function syncStops(force) {
     next.forEach(r=>list.appendChild(r));
   }
   updateRowMeta();
-  dockSuggest();
 }
 
 /* ─── summary bar ─── */
@@ -1469,7 +1474,7 @@ function bindStopInput(input) {
 
   input.addEventListener("focus", () => {
     S.focusId = id;
-    if (S.snap === "collapsed") setSnap("mid");
+    setSnap("full");
     const stop = S.trip?.stops.find(s=>s.id===id);
     const q = input.value.trim();
     input.closest(".stop-row")?.scrollIntoView({ block: "nearest" });
