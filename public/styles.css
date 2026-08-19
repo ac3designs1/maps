@@ -497,13 +497,17 @@ button:focus-visible, a:focus-visible { outline:2px solid var(--blue); outline-o
 
 /* ── Autocomplete ────────────────────────────────── */
 .suggest-box {
-  position:fixed; left:12px; right:12px; z-index:35;
-  background:var(--card); border-radius:16px;
-  box-shadow:var(--s3); border:.5px solid var(--border);
-  overflow:hidden auto; -webkit-overflow-scrolling:touch;
+  flex:1; min-height:0;
+  overflow-x:hidden; overflow-y:auto;
+  -webkit-overflow-scrolling:touch;
+  background:transparent; border:none; border-radius:0; box-shadow:none;
+  animation:none; position:relative; z-index:1;
   pointer-events:auto;
-  animation:dropIn .14s ease both;
 }
+.sheet.is-searching .stop-list { flex:0 0 auto; overflow:hidden; }
+.sheet.is-searching .stop-row:not(:focus-within) { display:none; }
+.sheet.is-searching .action-row,
+.sheet.is-searching .optimise-nudge { display:none; }
 @keyframes dropIn { from { opacity:0; transform:translateY(-4px); } to { opacity:1; transform:none; } }
 @media (prefers-reduced-motion: reduce) {
   .suggest-box { animation: none; }

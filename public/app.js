@@ -899,9 +899,7 @@ function hideSuggest() {
   box.classList.add("hidden");
   box.classList.remove("is-loading");
   box.innerHTML=""; box._hits=null;
-  box.style.top = "";
-  box.style.bottom = "";
-  box.style.maxHeight = "";
+  $("sheet")?.classList.remove("is-searching");
   S.sugI = 0;
 }
 
@@ -912,26 +910,10 @@ function activeStopInput() {
 }
 
 function positionSuggest() {
-  const box   = $("suggestBox");
-  const input = activeStopInput();
-  if (!box || !input || box.classList.contains("hidden")) return;
-  const vv = window.visualViewport;
-  const r = input.getBoundingClientRect();
-  const visBottom = vv ? vv.height : window.innerHeight;
-  const gap = 6;
-  const top = r.bottom + gap;
-  const avail = visBottom - top - 10;
-  const maxH = Math.max(88, Math.min(avail, 240));
-  if (maxH < 72) return;
-  box.style.top = `${Math.max(8, top)}px`;
-  box.style.bottom = "auto";
-  box.style.maxHeight = `${maxH}px`;
+  $("sheet")?.classList.add("is-searching");
 }
 function pinSuggestSoon() {
   positionSuggest();
-  clearTimeout(S.sugPinTimer);
-  S.sugPinTimer = setTimeout(() => positionSuggest(), 80);
-  setTimeout(() => positionSuggest(), 240);
 }
 
 async function lookup(q) {
