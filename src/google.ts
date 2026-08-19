@@ -47,22 +47,12 @@ function biasPoint(lat?: number, lon?: number) {
   return { lat: AU.biasLat, lon: AU.biasLng };
 }
 
-/** Metro-scale viewport. Autocomplete circles cannot exceed 50 km, which misses most of a city. */
-function locationBias(lat?: number, lon?: number) {
-  const p = biasPoint(lat, lon);
-  const dLat = 1.6;
-  const cos = Math.max(0.3, Math.abs(Math.cos((p.lat * Math.PI) / 180)));
-  const dLng = 1.6 / cos;
+/** Whole of Australia — no city radius. Origin still ranks nearby first. */
+function australiaBias() {
   return {
     rectangle: {
-      low: {
-        latitude: Math.max(AU.minLat, p.lat - dLat),
-        longitude: Math.max(AU.minLng, p.lon - dLng),
-      },
-      high: {
-        latitude: Math.min(AU.maxLat, p.lat + dLat),
-        longitude: Math.min(AU.maxLng, p.lon + dLng),
-      },
+      low: { latitude: AU.minLat, longitude: AU.minLng },
+      high: { latitude: AU.maxLat, longitude: AU.maxLng },
     },
   };
 }
@@ -149,7 +139,7 @@ async function googleAutocomplete(query: string, lat?: number, lon?: number): Pr
     regionCode: "au",
     includePureServiceAreaBusinesses: true,
     origin: { latitude: bias.lat, longitude: bias.lon },
-    locationBias: locationBias(lat, lon),
+    locationBias: australiaBias(),
   };
 
   const data = (await googleFetch("https://places.googleapis.com/v1/places:autocomplete", {
@@ -205,7 +195,7 @@ async function googleTextSearch(query: string, lat?: number, lon?: number): Prom
     regionCode: "au",
     languageCode: "en",
     maxResultCount: 15,
-    locationBias: locationBias(lat, lon),
+    locationBias: australiaBias(),
   };
 
   const data = (await googleFetch("https://places.googleapis.com/v1/places:searchText", {
