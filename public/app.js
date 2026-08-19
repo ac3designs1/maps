@@ -117,46 +117,6 @@ function leaveAtMs(trip = S.trip) {
   const t = Number(trip?.leaveAt);
   return Number.isFinite(t) && t > 0 ? t : Date.now();
 }
-function parseClockToMin(raw) {
-  const s = String(raw || "").trim().toLowerCase().replace(/\s+/g, " ");
-  const m = s.match(/^(\d{1,2})(?::(\d{2}))?\s*(am|pm)?$/);
-  if (!m) return null;
-  let h = Number(m[1]);
-  const min = Number(m[2] || 0);
-  const ap = m[3];
-  if (ap === "pm" && h < 12) h += 12;
-  if (ap === "am" && h === 12) h = 0;
-  if (h === 24) h = 0;
-  return h * 60 + min;
-}
-function hoursWindows(text) {
-  const t = String(text || "").replace(/^[^:]+:\s*/i, "").trim().toLowerCase();
-  if (!t) return null;
-  if (/closed/.test(t) && !/\d/.test(t)) return [];
-  if (/24\s*hours|open 24/.test(t)) return [[0, 24 * 60]];
-  const windows = [];
-  for (const part of t.split(/[,;]|\s+and\s+/)) {
-    const range = part.split(/\s*(?:[–—−]| to )\s*/);
-    if (range.length < 2) continue;
-    const a = parseClockToMin(range[0]);
-    const b = parseClockToMin(range[1]);
-    if (a == null || b == null) continue;
-    if (b <= a) { windows.push([a, 24 * 60], [0, b]); }
-    else windows.push([a, b]);
-  }
-  return windows.length ? windows : null;
-}
-function isClosedAt(stop, ms) {
-  if (!stop || isHereStop(stop)) return false;
-  const d = new Date(ms);
-  const i = (d.getDay() + 6) % 7;
-  const desc = Array.isArray(stop.hoursWeek) && stop.hoursWeek[i] ? stop.hoursWeek[i] : stop.hours;
-  const windows = hoursWindows(desc);
-  if (!windows) return false;
-  if (!windows.length) return true;
-  const mins = d.getHours() * 60 + d.getMinutes();
-  return !windows.some(([a, b]) => mins >= a && mins < b);
-}
 function stopArrivals(trip = S.trip) {
   const r = S.route;
   const pts = routeStops(trip);
@@ -844,22 +804,12 @@ function renderSugRow(h, i) {
   const dist = esc(fmtSugDist(h.distanceM));
   const me = h.here ? ` data-me="1"` : "";
   const pin = h.pin ? ` data-pin="${esc(h.pin)}"` : "";
-  const hours = h.openNow === true
-    ? (h.hours && !/^closed/i.test(h.hours) ? `Open · ${h.hours}` : "Open")
-    : h.openNow === false ? "Closed" : (h.hours || "");
-  const hoursCls = h.openNow === true ? "sug-open" : h.openNow === false ? "sug-closed" : "";
-  const tel = String(h.phone || "").replace(/[^\d+]/g, "");
-  const call = tel ? `<a class="sug-call" href="tel:${esc(tel)}" aria-label="Call">
-    <svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor"><path d="M6.6 10.8c1.4 2.8 3.8 5.2 6.6 6.6l2.2-2.2c.3-.3.7-.4 1.1-.3 1.2.4 2.5.6 3.8.6.6 0 1 .4 1 1V20c0 .6-.4 1-1 1C10.6 21 3 13.4 3 4c0-.6.4-1 1-1h3.5c.6 0 1 .4 1 1 0 1.3.2 2.6.6 3.8.1.4 0 .8-.3 1.1L6.6 10.8z"/></svg>
-  </a>` : "";
   return `<div class="sug-row${i===S.sugI?" is-on":""}" data-i="${i}" role="button"${me}${pin}>
     <span class="sug-ico ${cls}">${svg}</span>
     <span class="sug-text">
       <span class="sug-top"><span class="sug-name">${name}</span>${dist?`<span class="sug-dist">${dist}</span>`:""}</span>
       ${addr?`<span class="sug-addr">${addr}</span>`:""}
-      ${hours?`<span class="sug-hours ${hoursCls}">${esc(hours)}</span>`:""}
     </span>
-    ${call}
   </div>`;
 }
 
@@ -1054,11 +1004,9 @@ async function pickSugRow(btn) {
 }
 
 $("suggestBox").addEventListener("pointerdown", e => {
-  if (e.target.closest(".sug-call")) return;
   if (e.target.closest(".sug-row")) e.preventDefault();
 });
 $("suggestBox").addEventListener("click", async e => {
-  if (e.target.closest(".sug-call")) { e.stopPropagation(); return; }
   const btn = e.target.closest(".sug-row");
   if (!btn) return;
   e.preventDefault();
@@ -1156,20 +1104,14 @@ function updateRowMeta() {
       const leg = Number.isFinite(li) && li > 0 ? S.route?.legs?.[li - 1] : null;
       const drive = !isDoneStop(s) && !isSkippedStop(s) && i>0 && leg ? `${fmtDur(leg.durationS)} · ${fmtKm(leg.distanceM)}` : "";
       const eta = arr && !isDoneStop(s) && !isSkippedStop(s) ? (li===0 ? `Leave ${fmtClock(arr.leave)}` : fmtClock(arr.arrive)) : "";
-      const closed = arr && li > 0 && isClosedAt(s, arr.arrive);
       const waitN = dwellMinutes(s);
       const wait = !isHereStop(s) && Number.isFinite(s.lat) && !isSkippedStop(s) && !isDoneStop(s)
         ? `<button type="button" class="dwell-btn" data-act="dwell" data-id="${s.id}">${waitN ? `${waitN} min here` : "Wait"}</button>`
         : "";
-      const tel = String(s.phone || "").replace(/[^\d+]/g, "");
-      const call = tel ? `<a class="stop-call" href="tel:${esc(tel)}" aria-label="Call"><svg viewBox="0 0 24 24" width="12" height="12" fill="currentColor"><path d="M6.6 10.8c1.4 2.8 3.8 5.2 6.6 6.6l2.2-2.2c.3-.3.7-.4 1.1-.3 1.2.4 2.5.6 3.8.6.6 0 1 .4 1 1V20c0 .6-.4 1-1 1C10.6 21 3 13.4 3 4c0-.6.4-1 1-1h3.5c.6 0 1 .4 1 1 0 1.3.2 2.6.6 3.8.1.4 0 .8-.3 1.1L6.6 10.8z"/></svg></a>` : "";
-      const closedEl = closed ? `<span class="eta-closed">Closed at ${fmtClock(arr.arrive)}</span>` : "";
       legEl.innerHTML = [
         drive ? `<span>${drive}</span>` : "",
-        eta && !closed ? `<span class="eta-time">${esc(eta)}</span>` : "",
-        closedEl,
+        eta ? `<span class="eta-time">${esc(eta)}</span>` : "",
         wait,
-        call,
       ].filter(Boolean).join("");
     }
   }
@@ -1230,9 +1172,7 @@ function updateSummary() {
   const trafficNote = delay >= 90 ? ` · +${fmtDur(delay)} traffic` : "";
   const wait = tripDwellMin();
   const waitNote = wait ? ` · ${wait} min at stops` : "";
-  const closedN = arrivals.filter((a, i) => i>0 && isClosedAt(routeStops().find(s=>s.id===a.id), a.arrive)).length;
-  const closedNote = closedN ? ` · ${closedN} closed` : "";
-  sub.textContent   = `${fmtDur(r.durationS)} · ${fmtKm(r.distanceM)}${S.trip.roundtrip?" · round trip":""}${trafficNote}${waitNote}${closedNote}`;
+  sub.textContent   = `${fmtDur(r.durationS)} · ${fmtKm(r.distanceM)}${S.trip.roundtrip?" · round trip":""}${trafficNote}${waitNote}`;
   start.disabled    = false;
 }
 
@@ -1416,7 +1356,6 @@ function bindStopInput(input) {
 
 /* ─── stop list events ─── */
 $("stopList").addEventListener("click", e => {
-  if (e.target.closest(".stop-call")) return;
   const done = e.target.closest("[data-act=\"done\"]");
   if (done && S.trip && !done.disabled) {
     const s = S.trip.stops.find(x => x.id === done.dataset.id);
@@ -1599,7 +1538,7 @@ window.addEventListener("popstate", () => {
 });
 $("btnLocate").onclick = () => {
   if (!S.here) return toast("Location unavailable");
-  S.map?.setView([S.here.lat,S.here.lng],15);
+  focusLatLng(S.here.lat, S.here.lng, 15);
 };
 
 document.addEventListener("keydown", e => {
@@ -2079,6 +2018,13 @@ function mapPad() {
   const h = $("tripScreen").classList.contains("is-open") ? ($("sheet").offsetHeight || 200) : 24;
   return {paddingTopLeft:[16,64],paddingBottomRight:[16,h+10]};
 }
+function focusLatLng(lat, lng, zoom = 15, animate = true) {
+  if (!S.map || !Number.isFinite(lat) || !Number.isFinite(lng)) return;
+  const pad = mapPad();
+  S.map.setView([lat, lng], zoom, { animate: false });
+  const dy = (pad.paddingTopLeft[1] - pad.paddingBottomRight[1]) / 2;
+  if (Math.abs(dy) >= 1) S.map.panBy([0, dy], { animate: !!animate });
+}
 function drawMap(fit) {
   ensureMap();
   S.markers.forEach(m=>m.remove()); S.markers=[];
@@ -2124,7 +2070,7 @@ function drawMap(fit) {
       }
       if (fit) S.map.fitBounds(S.lineOutline.getBounds(),pad);
     } else if (fit) {
-      if (pts.length===1) S.map.setView([pts[0].lat,pts[0].lng],14);
+      if (pts.length===1) focusLatLng(pts[0].lat, pts[0].lng, 14, false);
       else if (pts.length>1) S.map.fitBounds(L.latLngBounds(pts.map(p=>[p.lat,p.lng])),pad);
     }
   } catch {}
