@@ -899,7 +899,7 @@ function hideSuggest() {
   box.classList.add("hidden");
   box.classList.remove("is-loading");
   box.innerHTML=""; box._hits=null;
-  $("sheet")?.classList.remove("is-searching");
+  $("stopList")?.appendChild(box);
   S.sugI = 0;
 }
 
@@ -909,12 +909,15 @@ function activeStopInput() {
   return el?.matches?.(".stop-input") ? el : null;
 }
 
-function positionSuggest() {
-  $("sheet")?.classList.add("is-searching");
+function dockSuggest() {
+  const box = $("suggestBox");
+  const input = activeStopInput();
+  const row = input?.closest(".stop-row");
+  if (!box || box.classList.contains("hidden") || !row) return;
+  row.after(box);
 }
-function pinSuggestSoon() {
-  positionSuggest();
-}
+function positionSuggest() { dockSuggest(); }
+function pinSuggestSoon() { dockSuggest(); }
 
 async function lookup(q) {
   S.suggestAc?.abort();
@@ -1194,8 +1197,9 @@ $("suggestBox").addEventListener("click", async e => {
   await pickSugRow(btn);
 });
 
-document.addEventListener("click", e => {
-  if (e.target.closest("#suggestBox")||e.target.closest(".stop-input")) return;
+document.addEventListener("pointerdown", e => {
+  if (e.target.closest("#suggestBox") || e.target.closest(".stop-input") || e.target.closest(".stop-row")) return;
+  if (!$("tripScreen")?.classList.contains("is-open")) return;
   hideSuggest();
 });
 
@@ -1304,9 +1308,13 @@ function updateRowMeta() {
 function syncStops(force) {
   const list = $("stopList");
   const trip = S.trip;
-  if (!trip) { list.innerHTML=""; return; }
+  if (!trip) {
+    [...list.querySelectorAll(":scope > .stop-row")].forEach(r => r.remove());
+    hideSuggest();
+    return;
+  }
   const ids = trip.stops.map(s=>s.id);
-  const existing = [...list.children];
+  const existing = [...list.querySelectorAll(":scope > .stop-row")];
   if (force || existing.map(r=>r.dataset.id).join()!==ids.join()) {
     const map = new Map(existing.map(r=>[r.dataset.id,r]));
     const next = [];
@@ -1318,6 +1326,7 @@ function syncStops(force) {
     next.forEach(r=>list.appendChild(r));
   }
   updateRowMeta();
+  dockSuggest();
 }
 
 /* ─── summary bar ─── */
@@ -1460,7 +1469,7 @@ function bindStopInput(input) {
 
   input.addEventListener("focus", () => {
     S.focusId = id;
-    setSnap("full");
+    if (S.snap === "collapsed") setSnap("mid");
     const stop = S.trip?.stops.find(s=>s.id===id);
     const q = input.value.trim();
     input.closest(".stop-row")?.scrollIntoView({ block: "nearest" });
