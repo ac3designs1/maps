@@ -897,7 +897,7 @@ function hideSuggest() {
   clearTimeout(S.sugPinTimer);
   const box = $("suggestBox");
   box.classList.add("hidden");
-  box.classList.remove("is-loading", "is-docked");
+  box.classList.remove("is-loading");
   box.innerHTML=""; box._hits=null;
   box.style.top = "";
   box.style.bottom = "";
@@ -911,38 +911,27 @@ function activeStopInput() {
   return el?.matches?.(".stop-input") ? el : null;
 }
 
-function positionSuggest(again) {
+function positionSuggest() {
   const box   = $("suggestBox");
   const input = activeStopInput();
   if (!box || !input || box.classList.contains("hidden")) return;
-
   const vv = window.visualViewport;
-  const offsetTop = vv?.offsetTop || 0;
-  const visBottom = offsetTop + (vv?.height || window.innerHeight);
-  const kbPad = Math.max(0, window.innerHeight - visBottom);
   const r = input.getBoundingClientRect();
-  const gap = 8;
-  const top = Math.round(r.bottom + offsetTop + gap);
-  const bottom = Math.max(8, Math.round(kbPad));
-  const avail = window.innerHeight - top - bottom;
-
-  if (avail < 88 && !again) {
-    input.closest(".stop-row")?.scrollIntoView({ block: "start", inline: "nearest" });
-    requestAnimationFrame(() => positionSuggest(true));
-    return;
-  }
-
-  box.classList.add("is-docked");
+  const visBottom = vv ? vv.height : window.innerHeight;
+  const gap = 6;
+  const top = r.bottom + gap;
+  const avail = visBottom - top - 10;
+  const maxH = Math.max(88, Math.min(avail, 240));
+  if (maxH < 72) return;
   box.style.top = `${Math.max(8, top)}px`;
-  box.style.bottom = `${bottom}px`;
-  box.style.maxHeight = "none";
+  box.style.bottom = "auto";
+  box.style.maxHeight = `${maxH}px`;
 }
 function pinSuggestSoon() {
   positionSuggest();
   clearTimeout(S.sugPinTimer);
   S.sugPinTimer = setTimeout(() => positionSuggest(), 80);
   setTimeout(() => positionSuggest(), 240);
-  setTimeout(() => positionSuggest(), 420);
 }
 
 async function lookup(q) {
@@ -1492,7 +1481,7 @@ function bindStopInput(input) {
     setSnap("full");
     const stop = S.trip?.stops.find(s=>s.id===id);
     const q = input.value.trim();
-    input.closest(".stop-row")?.scrollIntoView({ block: "start", inline: "nearest" });
+    input.closest(".stop-row")?.scrollIntoView({ block: "nearest" });
     if (isHereStop(stop) || input.readOnly) showEmptySuggest();
     else if (!q) showEmptySuggest();
     else if (q.length >= 2) runSuggest(id, q);
