@@ -894,10 +894,14 @@ function cancelSuggest() {
 
 function hideSuggest() {
   cancelSuggest();
+  clearTimeout(S.sugPinTimer);
   const box = $("suggestBox");
   box.classList.add("hidden");
-  box.classList.remove("is-loading");
+  box.classList.remove("is-loading", "is-docked");
   box.innerHTML=""; box._hits=null;
+  box.style.top = "";
+  box.style.bottom = "";
+  box.style.maxHeight = "";
   S.sugI = 0;
 }
 
@@ -907,30 +911,38 @@ function activeStopInput() {
   return el?.matches?.(".stop-input") ? el : null;
 }
 
-function positionSuggest() {
+function positionSuggest(again) {
   const box   = $("suggestBox");
   const input = activeStopInput();
-  if (!input||box.classList.contains("hidden")) return;
+  if (!box || !input || box.classList.contains("hidden")) return;
 
-  requestAnimationFrame(() => {
-    const r = input.getBoundingClientRect();
-    const kb = parseFloat(getComputedStyle(document.documentElement).getPropertyValue("--kb"))||0;
-    const safeB = window.innerHeight - kb - 8;
-    const gap = 6;
-    const below = safeB - r.bottom - gap;
-    const above = r.top - 64 - gap;
+  const vv = window.visualViewport;
+  const offsetTop = vv?.offsetTop || 0;
+  const visBottom = offsetTop + (vv?.height || window.innerHeight);
+  const kbPad = Math.max(0, window.innerHeight - visBottom);
+  const r = input.getBoundingClientRect();
+  const gap = 8;
+  const top = Math.round(r.bottom + offsetTop + gap);
+  const bottom = Math.max(8, Math.round(kbPad));
+  const avail = window.innerHeight - top - bottom;
 
-    let top, maxH;
-    if (below >= 100 || below >= above) {
-      top  = r.bottom + gap;
-      maxH = Math.min(300, Math.max(100, below));
-    } else {
-      maxH = Math.min(300, Math.max(100, above));
-      top  = r.top - maxH - gap;
-    }
-    box.style.top     = `${Math.max(8,top)}px`;
-    box.style.maxHeight = `${maxH}px`;
-  });
+  if (avail < 88 && !again) {
+    input.closest(".stop-row")?.scrollIntoView({ block: "start", inline: "nearest" });
+    requestAnimationFrame(() => positionSuggest(true));
+    return;
+  }
+
+  box.classList.add("is-docked");
+  box.style.top = `${Math.max(8, top)}px`;
+  box.style.bottom = `${bottom}px`;
+  box.style.maxHeight = "none";
+}
+function pinSuggestSoon() {
+  positionSuggest();
+  clearTimeout(S.sugPinTimer);
+  S.sugPinTimer = setTimeout(() => positionSuggest(), 80);
+  setTimeout(() => positionSuggest(), 240);
+  setTimeout(() => positionSuggest(), 420);
 }
 
 async function lookup(q) {
@@ -1026,7 +1038,7 @@ function paintSearchError(q, local) {
     const inp = activeStopInput();
     if (id && inp) runSuggest(id, inp.value.trim());
   });
-  positionSuggest();
+  pinSuggestSoon();
 }
 
 function sugSkeleton() {
@@ -1050,7 +1062,7 @@ function paintHits(hits, loading) {
   box.innerHTML = renderSuggestRows(hits);
   box._hits = hits;
   box.classList.remove("hidden");
-  positionSuggest();
+  pinSuggestSoon();
 }
 
 function showEmptySuggest() {
@@ -1081,7 +1093,7 @@ function showEmptySuggest() {
   box.innerHTML = parts.join("");
   box._hits = all;
   box.classList.remove("hidden");
-  positionSuggest();
+  pinSuggestSoon();
 }
 
 function refreshHereSuggest() {
@@ -1445,7 +1457,7 @@ function runSuggest(id, q) {
       box.innerHTML = sugSkeleton();
       box._hits = null;
     }
-    positionSuggest();
+    pinSuggestSoon();
   }
   S.suggestTimer = setTimeout(async () => {
     if (seq !== S.suggestSeq) return;
@@ -1480,11 +1492,11 @@ function bindStopInput(input) {
     setSnap("full");
     const stop = S.trip?.stops.find(s=>s.id===id);
     const q = input.value.trim();
-    input.closest(".stop-row")?.scrollIntoView({block:"nearest"});
+    input.closest(".stop-row")?.scrollIntoView({ block: "start", inline: "nearest" });
     if (isHereStop(stop) || input.readOnly) showEmptySuggest();
     else if (!q) showEmptySuggest();
     else if (q.length >= 2) runSuggest(id, q);
-    requestAnimationFrame(()=>positionSuggest());
+    pinSuggestSoon();
   });
 
   input.addEventListener("blur", () => {
