@@ -2,11 +2,12 @@
 <html lang="en">
 <head>
   <meta charset="utf-8"/>
-  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,maximum-scale=1,user-scalable=no"/>
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,maximum-scale=1,user-scalable=no,interactive-widget=resizes-content"/>
   <meta name="apple-mobile-web-app-capable" content="yes"/>
   <meta name="mobile-web-app-capable" content="yes"/>
-  <meta name="apple-mobile-web-app-status-bar-style" content="default"/>
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent"/>
   <meta name="apple-mobile-web-app-title" content="Trips"/>
+  <meta name="format-detection" content="telephone=no,email=no,address=no"/>
   <meta name="theme-color" content="#F2F2F7" media="(prefers-color-scheme:light)"/>
   <meta name="theme-color" content="#000000" media="(prefers-color-scheme:dark)"/>
   <meta name="color-scheme" content="light dark"/>
@@ -15,11 +16,19 @@
   <link rel="apple-touch-icon" href="icon-180.png"/>
   <link rel="icon" href="icon.svg"/>
   <title>Trips</title>
-  <link rel="stylesheet" href="vendor/leaflet.css?v=64"/>
-  <link rel="stylesheet" href="styles.css?v=64"/>
+  <link rel="stylesheet" href="vendor/leaflet.css?v=65"/>
+  <link rel="stylesheet" href="styles.css?v=65"/>
+  <script>
+    (function () {
+      try {
+        if (window.matchMedia("(display-mode:standalone)").matches || window.navigator.standalone === true)
+          document.documentElement.classList.add("is-standalone");
+      } catch (e) {}
+    })();
+  </script>
 </head>
 <body>
-
+<div id="bootSplash" aria-hidden="true"></div>
 <div id="map"></div>
 
 <!-- ═══════════════════════════════════════
@@ -37,7 +46,7 @@
 
   <div class="search-wrap">
     <svg class="search-icon" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3-3"/></svg>
-    <input id="tripSearch" type="search" placeholder="Search trips" enterkeyhint="search" inputmode="search" autocomplete="off" autocorrect="off" spellcheck="false"/>
+    <input id="tripSearch" type="search" placeholder="Search trips" enterkeyhint="search" inputmode="search" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false"/>
     <button id="searchClear" class="search-clear hidden" type="button" aria-label="Clear search">
       <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><path d="M18 6L6 18M6 6l12 12"/></svg>
     </button>
@@ -198,7 +207,7 @@
   </div>
 </div>
 
-<script src="vendor/leaflet.js?v=64"></script>
-<script src="app.js?v=64"></script>
+<script src="vendor/leaflet.js?v=65"></script>
+<script src="app.js?v=65"></script>
 </body>
 </html>

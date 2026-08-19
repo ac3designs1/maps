@@ -505,6 +505,7 @@ function showList() {
   stopTrafficWatch();
   stopEtaWatch();
   renderContinue();
+  setThemeColor();
 }
 function showTrip() {
   $("listScreen").classList.add("is-away");
@@ -515,6 +516,7 @@ function showTrip() {
   }
   startTrafficWatch();
   startEtaWatch();
+  setThemeColor();
   requestAnimationFrame(() => {
     S.map?.invalidateSize();
     S.map?.dragging?.enable();
@@ -1056,7 +1058,7 @@ function makeRow(s,i,n) {
         <circle cx="8" cy="18" r="1.5"/><circle cx="16" cy="18" r="1.5"/>
       </svg>
     </div>
-    <button class="del-btn" data-act="del" data-id="${s.id}" aria-label="Remove">
+    <button type="button" class="del-btn" data-act="del" data-id="${s.id}" aria-label="Remove">
       <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M18 6L6 18M6 6l12 12"/></svg>
     </button>`;
   bindStopInput(row.querySelector(".stop-input"));
@@ -1491,6 +1493,7 @@ $("btnMore").onclick  = () => { if (!S.trip) return; openModal("More", moreBody(
 
 /* ─── map toggle ─── */
 $("btnMapToggle").onclick = () => {
+  buzz();
   if (S.snap==="full") { document.activeElement?.blur(); hideSuggest(); setSnap("mid"); drawMap(true); }
   else {
     setSnap("full");
@@ -1528,6 +1531,7 @@ function backToList() {
   showList();
 }
 $("btnBack").onclick = () => {
+  buzz();
   if (!$("modal").classList.contains("hidden")) { closeModal(); return; }
   if (!$("suggestBox").classList.contains("hidden")) { hideSuggest(); document.activeElement?.blur(); return; }
   if (history.state?.tp === 1) { history.back(); return; }
@@ -1538,6 +1542,7 @@ window.addEventListener("popstate", () => {
 });
 $("btnLocate").onclick = () => {
   if (!S.here) return toast("Location unavailable");
+  buzz();
   focusLatLng(S.here.lat, S.here.lng, 15);
 };
 
@@ -2163,6 +2168,7 @@ function openExternal(kind) {
       else if (h < max * 0.28) setSnap("collapsed");
       else                      setSnap("mid");
     }
+    buzz(6);
     startY = null;
   };
 
@@ -2505,6 +2511,35 @@ const _analytics = (function() {
   return { ping };
 })();
 
+function setThemeColor() {
+  const dark = !!window.matchMedia?.("(prefers-color-scheme: dark)")?.matches;
+  const planner = $("tripScreen")?.classList.contains("is-open");
+  const color = dark ? "#000000" : (planner ? "#E8EEF2" : "#F2F2F7");
+  document.querySelectorAll("meta[name='theme-color']").forEach(el => {
+    if (!el.media || window.matchMedia(el.media).matches) el.setAttribute("content", color);
+  });
+}
+function hideBootSplash() {
+  const el = $("bootSplash");
+  if (!el) return;
+  requestAnimationFrame(() => {
+    el.classList.add("is-gone");
+    setTimeout(() => el.remove(), 340);
+  });
+}
+function feelNative() {
+  try { history.scrollRestoration = "manual"; } catch {}
+  try { if (navigator.virtualKeyboard) navigator.virtualKeyboard.overlaysContent = true; } catch {}
+  document.addEventListener("gesturestart", e => e.preventDefault(), { passive: false });
+  document.addEventListener("contextmenu", e => {
+    if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return;
+    e.preventDefault();
+  });
+  window.matchMedia("(prefers-color-scheme: dark)").addEventListener?.("change", setThemeColor);
+  setThemeColor();
+  hideBootSplash();
+}
+
 /* ─── iOS: don't rubber-band the whole page off the map ─── */
 document.addEventListener("touchmove", (e) => {
   if (e.touches.length > 1) return;
@@ -2535,6 +2570,7 @@ function nativeInit() {
 }
 
 /* ─── boot ─── */
+feelNative();
 nativeInit();
 ensureMap();
 locate();

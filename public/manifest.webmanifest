@@ -3,13 +3,20 @@
   "name": "Trips",
   "short_name": "Trips",
   "description": "Plan a drive, optimise stops, open in Waze.",
+  "lang": "en-AU",
+  "dir": "ltr",
   "display": "standalone",
-  "display_override": ["standalone"],
+  "display_override": ["standalone", "minimal-ui"],
   "start_url": "/",
   "scope": "/",
   "orientation": "portrait",
   "background_color": "#F2F2F7",
   "theme_color": "#F2F2F7",
+  "categories": ["navigation", "travel"],
+  "handle_links": "preferred",
+  "launch_handler": {
+    "client_mode": ["navigate-existing", "auto"]
+  },
   "icons": [
     {
       "src": "icon-192.png",
