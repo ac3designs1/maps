@@ -50,7 +50,10 @@ const $ = (id) => document.getElementById(id);
 function uid() {
   return crypto.randomUUID?.() ?? `${Date.now()}-${Math.random().toString(16).slice(2)}`;
 }
-function buzz(ms = 8) { try { navigator.vibrate?.(ms); } catch {} }
+function buzz(ms = 8) {
+  try { window.Capacitor?.Plugins?.Haptics?.impact?.({ style: "LIGHT" }); } catch {}
+  try { navigator.vibrate?.(ms); } catch {}
+}
 function isNativeApp() {
   try { return !!window.Capacitor?.isNativePlatform?.(); } catch { return false; }
 }
@@ -574,6 +577,7 @@ function renderContinue() {
 
 function showTab(name) {
   const tab = name === "trips" || name === "settings" ? name : "home";
+  const current = document.querySelector(".tab-btn.is-on")?.dataset.tab;
   $("homePane")?.classList.toggle("is-on", tab === "home");
   $("tripsPane")?.classList.toggle("is-on", tab === "trips");
   $("settingsPane")?.classList.toggle("is-on", tab === "settings");
@@ -581,9 +585,16 @@ function showTab(name) {
   try { localStorage.setItem("maps.tab", tab); } catch {}
   if (tab === "settings") renderSettings();
   if (tab === "home") renderHome();
+  return current === tab;
 }
 
 function renderHome() {
+  const dateEl = $("homeDate");
+  if (dateEl) {
+    try {
+      dateEl.textContent = new Date().toLocaleDateString("en-AU", { weekday: "long", day: "numeric", month: "long" });
+    } catch { dateEl.textContent = ""; }
+  }
   const pins = readPins();
   const homeSub = $("homeGoHomeSub");
   const workSub = $("homeGoWorkSub");
@@ -592,17 +603,40 @@ function renderHome() {
   const recents = $("homeRecents");
   const empty = $("homeEmpty");
   const head = $("homeRecentsHead");
-  const trips = (S.trips || []).slice(0, 5);
-  if (empty) empty.classList.toggle("hidden", trips.length > 0);
-  if (head) head.classList.toggle("hidden", trips.length === 0);
+  const places = readRecentPlaces().slice(0, 6);
+  const trips = (S.trips || []).slice(0, 4);
+  const has = places.length > 0 || trips.length > 0;
+  if (empty) empty.classList.toggle("hidden", has);
+  if (head) head.classList.toggle("hidden", !has);
   if (!recents) return;
-  recents.innerHTML = trips.map(t => {
-    const stats = t.durationS ? fmtDur(t.durationS) : relTime(t.updatedAt);
-    return `<button type="button" class="home-recent" data-open-trip="${t.id}">
-      <span class="home-recent-name">${esc(t.title||"Untitled trip")}</span>
-      <span class="home-recent-sub">${esc(t.preview||"No stops yet")} · ${esc(stats)}</span>
-    </button>`;
-  }).join("");
+  const pinSvg = `<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 21s7-5.3 7-11a7 7 0 1 0-14 0c0 5.7 7 11 7 11z"/><circle cx="12" cy="10" r="2.2"/></svg>`;
+  const tripSvg = `<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 11.5L12 4l8 7.5V20a1 1 0 0 1-1 1h-5v-6H10v6H5a1 1 0 0 1-1-1z"/></svg>`;
+  recents.innerHTML = [
+    ...places.map((p, i) => `<button type="button" class="home-recent" data-open-place="${i}">
+      <span class="home-recent-ico place">${pinSvg}</span>
+      <span class="home-recent-text">
+        <span class="home-recent-name">${esc(p.name || String(p.label||"").split(",")[0])}</span>
+        <span class="home-recent-sub">${esc(p.sub || p.label || "")}</span>
+      </span>
+    </button>`),
+    ...trips.map(t => {
+      const stats = t.durationS ? fmtDur(t.durationS) : relTime(t.updatedAt);
+      return `<button type="button" class="home-recent" data-open-trip="${t.id}">
+        <span class="home-recent-ico">${tripSvg}</span>
+        <span class="home-recent-text">
+          <span class="home-recent-name">${esc(t.title||"Untitled trip")}</span>
+          <span class="home-recent-sub">${esc(t.preview||"No stops yet")} · ${esc(stats)}</span>
+        </span>
+      </button>`;
+    }),
+  ].join("");
+}
+
+function iosSwitch(on) {
+  return `<span class="ios-switch${on?" on":""}"><i></i></span>`;
+}
+function chev() {
+  return `<span class="mrow-chev"><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.4"><path d="M9 6l6 6-6 6"/></svg></span>`;
 }
 
 function renderSettings() {
@@ -613,38 +647,47 @@ function renderSettings() {
   const home = pins.home?.label ? String(pins.home.label).split(",")[0] : "Not set";
   const work = pins.work?.label ? String(pins.work.label).split(",")[0] : "Not set";
   box.innerHTML = `
+    <div class="settings-hero">
+      <img src="icon-180.png" width="72" height="72" alt=""/>
+      <strong>Trips</strong>
+      <span>Plan a drive, then Start in Waze</span>
+    </div>
     <p class="msec-label">Places</p>
     <div class="msec">
-      <button type="button" class="mrow" data-set="home">${ico(`<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"><path d="M10 20v-6h4v6h5v-8h3L12 3 2 12h3v8z"/></svg>`)}Home<span class="mrow-sub">${esc(home)}</span></button>
-      <button type="button" class="mrow" data-set="work">${ico(`<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="7" width="20" height="14" rx="2"/><path d="M16 7V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v2"/></svg>`)}Work<span class="mrow-sub">${esc(work)}</span></button>
+      <button type="button" class="mrow" data-set="home">${ico(`<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"><path d="M10 20v-6h4v6h5v-8h3L12 3 2 12h3v8z"/></svg>`)}Home<span class="mrow-sub">${esc(home)}</span>${chev()}</button>
+      <button type="button" class="mrow" data-set="work">${ico(`<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="7" width="20" height="14" rx="2"/><path d="M16 7V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v2"/></svg>`)}Work<span class="mrow-sub">${esc(work)}</span>${chev()}</button>
     </div>
     <p class="msec-label">New trips</p>
     <div class="msec">
-      <button type="button" class="mrow${prefs.roundtrip?" checked":""}" data-set="round">${ico(`<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 1l4 4-4 4M7 23l-4-4 4-4"/><path d="M3 11V9a4 4 0 0 1 4-4h14M21 13v2a4 4 0 0 1-4 4H3"/></svg>`)}Round trip${chk(prefs.roundtrip)}</button>
-      <button type="button" class="mrow${prefs.avoidTolls?" checked":""}" data-set="tolls">${ico(`<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="7" width="20" height="14" rx="2"/><path d="M12 11v6M9 14h6"/></svg>`)}Avoid tolls${chk(prefs.avoidTolls)}</button>
-      <button type="button" class="mrow${prefs.avoidFerries?" checked":""}" data-set="ferries">${ico(`<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"><path d="M2 21c.6.5 1.2 1 2.5 1 2.5 0 2.5-2 5-2"/><path d="M19 11H5L3 8h18z"/></svg>`)}Avoid ferries${chk(prefs.avoidFerries)}</button>
+      <button type="button" class="mrow" data-set="round">${ico(`<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 1l4 4-4 4M7 23l-4-4 4-4"/><path d="M3 11V9a4 4 0 0 1 4-4h14M21 13v2a4 4 0 0 1-4 4H3"/></svg>`)}Round trip${iosSwitch(prefs.roundtrip)}</button>
+      <button type="button" class="mrow" data-set="tolls">${ico(`<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="7" width="20" height="14" rx="2"/><path d="M12 11v6M9 14h6"/></svg>`)}Avoid tolls${iosSwitch(prefs.avoidTolls)}</button>
+      <button type="button" class="mrow" data-set="ferries">${ico(`<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"><path d="M2 21c.6.5 1.2 1 2.5 1 2.5 0 2.5-2 5-2"/><path d="M19 11H5L3 8h18z"/></svg>`)}Avoid ferries${iosSwitch(prefs.avoidFerries)}</button>
     </div>
     <p class="msec-label">Data</p>
     <div class="msec">
-      <button type="button" class="mrow" data-set="export">${ico(`<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>`)}Export backup</button>
-      <button type="button" class="mrow" data-set="import">${ico(`<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>`)}Import backup</button>
+      <button type="button" class="mrow" data-set="export">${ico(`<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>`)}Export backup${chev()}</button>
+      <button type="button" class="mrow" data-set="import">${ico(`<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>`)}Import backup${chev()}</button>
     </div>
     <p class="msec-label">About</p>
     <div class="msec">
-      <button type="button" class="mrow" data-set="privacy">${ico(`<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4M12 8h.01"/></svg>`)}Privacy</button>
-      <div class="mrow">Version<span class="mrow-sub">1.0 · free, one first-open ad</span></div>
+      <button type="button" class="mrow" data-set="privacy">${ico(`<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4M12 8h.01"/></svg>`)}Privacy${chev()}</button>
+      <div class="mrow">Version<span class="mrow-sub">1.0</span></div>
     </div>`;
 }
 
-async function startTripToPin(key) {
-  const hit = pinHit(key);
-  if (!hit) { showTab("settings"); toast("Set this place in Settings"); return; }
-  buzz();
+async function startTripToHit(hit) {
+  if (!hit || !Number.isFinite(hit.lat) || !Number.isFinite(hit.lng)) return;
   newTrip();
   const dest = S.trip.stops.find((s, i) => i > 0) || S.trip.stops[1];
   if (!dest) return;
   S.focusId = dest.id;
-  await applyHit({ ...hit, here: false, kind: "pin" });
+  await applyHit({ ...hit, here: false });
+}
+async function startTripToPin(key) {
+  const hit = pinHit(key);
+  if (!hit) { showTab("settings"); toast("Set this place in Settings"); return; }
+  buzz();
+  await startTripToHit({ ...hit, kind: "pin" });
 }
 
 function pinSearchBody(key) {
@@ -725,6 +768,7 @@ function renderList() {
     .sort((a,b)=>(a.starred?0:1)-(b.starred?0:1)||b.updatedAt-a.updatedAt);
   const empty = $("emptyState");
   empty.classList.toggle("hidden", rows.length > 0);
+  $("btnLibNew")?.classList.toggle("hidden", !!(S.trips.length && !rows.length));
   const h2 = empty.querySelector("h2");
   const p  = empty.querySelector("p");
   if (S.trips.length && !rows.length) {
@@ -1723,17 +1767,30 @@ $("searchClear").onclick = () => {
 };
 $("btnNew").onclick      = newTrip;
 $("btnEmptyNew").onclick = newTrip;
+$("btnLibNew")?.addEventListener("click", newTrip);
 $("tabBar")?.addEventListener("click", e => {
   const btn = e.target.closest("[data-tab]");
   if (!btn) return;
+  const name = btn.dataset.tab;
+  const pane = name === "trips" ? $("tripsPane") : name === "settings" ? $("settingsPane") : $("homePane");
+  if (document.querySelector(".tab-btn.is-on")?.dataset.tab === name) {
+    pane?.scrollTo({ top: 0, behavior: "smooth" });
+    return;
+  }
   buzz();
-  showTab(btn.dataset.tab);
+  showTab(name);
 });
 $("homeWhere")?.addEventListener("click", () => { buzz(); newTrip(); });
 $("homeGoHome")?.addEventListener("click", () => startTripToPin("home"));
 $("homeGoWork")?.addEventListener("click", () => startTripToPin("work"));
 $("homeSeeAll")?.addEventListener("click", () => { buzz(); showTab("trips"); });
 $("homeRecents")?.addEventListener("click", e => {
+  const place = e.target.closest("[data-open-place]");
+  if (place) {
+    const hit = readRecentPlaces()[Number(place.dataset.openPlace)];
+    if (hit) startTripToHit(hit);
+    return;
+  }
   const row = e.target.closest("[data-open-trip]");
   if (row) openTrip(row.dataset.openTrip);
 });
@@ -1744,9 +1801,9 @@ $("settingsBody")?.addEventListener("click", e => {
   const prefs = readPrefs();
   if (act === "home") { S.pinKey = "home"; openModal("Set Home", pinSearchBody("home")); return; }
   if (act === "work") { S.pinKey = "work"; openModal("Set Work", pinSearchBody("work")); return; }
-  if (act === "round") { writePrefs({ ...prefs, roundtrip: !prefs.roundtrip }); renderSettings(); return; }
-  if (act === "tolls") { writePrefs({ ...prefs, avoidTolls: !prefs.avoidTolls }); renderSettings(); return; }
-  if (act === "ferries") { writePrefs({ ...prefs, avoidFerries: !prefs.avoidFerries }); renderSettings(); return; }
+  if (act === "round") { buzz(); writePrefs({ ...prefs, roundtrip: !prefs.roundtrip }); renderSettings(); return; }
+  if (act === "tolls") { buzz(); writePrefs({ ...prefs, avoidTolls: !prefs.avoidTolls }); renderSettings(); return; }
+  if (act === "ferries") { buzz(); writePrefs({ ...prefs, avoidFerries: !prefs.avoidFerries }); renderSettings(); return; }
   if (act === "export") return exportBackup();
   if (act === "import") return pickBackupFile();
   if (act === "privacy") location.href = "/privacy.html";

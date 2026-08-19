@@ -16,8 +16,8 @@
   <link rel="apple-touch-icon" href="icon-180.png"/>
   <link rel="icon" href="icon.svg"/>
   <title>Trips</title>
-  <link rel="stylesheet" href="vendor/leaflet.css?v=68"/>
-  <link rel="stylesheet" href="styles.css?v=68"/>
+  <link rel="stylesheet" href="vendor/leaflet.css?v=69"/>
+  <link rel="stylesheet" href="styles.css?v=69"/>
   <script async src="https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client=ca-pub-6171482823199192" crossorigin="anonymous"></script>
   <script>
     (function () {
@@ -43,7 +43,10 @@
 
   <div id="homePane" class="tab-pane is-on">
     <header class="list-header">
-      <div class="list-title"><h1>Trips</h1></div>
+      <div class="list-title">
+        <p id="homeDate" class="list-date"></p>
+        <h1>Trips</h1>
+      </div>
     </header>
     <button type="button" id="homeWhere" class="home-search">
       <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3-3"/></svg>
@@ -82,7 +85,7 @@
     </div>
     <div id="homeRecents" class="home-recents"></div>
     <div id="homeEmpty" class="home-empty hidden">
-      <p>Add stops, then Start in Waze.</p>
+      <p>Search a place, or tap Home and Work once they’re set.</p>
       <button id="btnEmptyNew" class="btn-primary" type="button">Start a trip</button>
     </div>
   </div>
@@ -90,8 +93,8 @@
   <div id="tripsPane" class="tab-pane">
     <header class="list-header">
       <div class="list-title"><h1>Library</h1></div>
-      <button id="btnNew" class="fab-new" aria-label="New trip">
-        <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>
+      <button id="btnNew" class="header-add" aria-label="New trip">
+        <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>
       </button>
     </header>
     <div class="search-wrap">
@@ -108,6 +111,7 @@
       </div>
       <h2>No trips yet</h2>
       <p>Your saved drives show up here.</p>
+      <button id="btnLibNew" class="btn-primary" type="button">Start a trip</button>
     </div>
   </div>
 
@@ -120,15 +124,24 @@
 
   <nav id="tabBar" class="tab-bar">
     <button type="button" class="tab-btn is-on" data-tab="home" id="tabHome">
-      <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 11.5L12 4l8 7.5V20a1 1 0 0 1-1 1h-5v-6H10v6H5a1 1 0 0 1-1-1z"/></svg>
+      <span class="tab-ico">
+        <svg class="tab-line" viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="1.9"><path d="M4 11.5L12 4l8 7.5V20a1 1 0 0 1-1 1h-5v-6H10v6H5a1 1 0 0 1-1-1z"/></svg>
+        <svg class="tab-fill" viewBox="0 0 24 24" width="24" height="24" fill="currentColor"><path d="M12 3.2L3.2 11.2c-.3.3-.2.8.2.8H5v8.2c0 .4.3.8.8.8h4.4v-6.2h3.2v6.2h4.4c.4 0 .8-.4.8-.8V12h1.6c.4 0 .5-.5.2-.8L12 3.2z"/></svg>
+      </span>
       Home
     </button>
     <button type="button" class="tab-btn" data-tab="trips" id="tabTrips">
-      <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2"><path d="M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01"/></svg>
+      <span class="tab-ico">
+        <svg class="tab-line" viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="1.9"><path d="M8 6h13M8 12h13M8 18h13M3.5 6h.01M3.5 12h.01M3.5 18h.01"/></svg>
+        <svg class="tab-fill" viewBox="0 0 24 24" width="24" height="24" fill="currentColor"><path d="M4 5.2a1.3 1.3 0 1 0 0 2.6 1.3 1.3 0 0 0 0-2.6zm4.2.4h12.3a1 1 0 0 1 0 2H8.2a1 1 0 1 1 0-2zM4 11.2a1.3 1.3 0 1 0 0 2.6 1.3 1.3 0 0 0 0-2.6zm4.2.4h12.3a1 1 0 0 1 0 2H8.2a1 1 0 1 1 0-2zM4 17.2a1.3 1.3 0 1 0 0 2.6 1.3 1.3 0 0 0 0-2.6zm4.2.4h12.3a1 1 0 0 1 0 2H8.2a1 1 0 1 1 0-2z"/></svg>
+      </span>
       Library
     </button>
     <button type="button" class="tab-btn" data-tab="settings" id="tabSettings">
-      <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9c.3.6.9 1 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg>
+      <span class="tab-ico">
+        <svg class="tab-line" viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="1.9"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9c.3.6.9 1 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg>
+        <svg class="tab-fill" viewBox="0 0 24 24" width="24" height="24" fill="currentColor"><path d="M19.14 12.94c.04-.31.06-.63.06-.94s-.02-.63-.06-.94l2.03-1.58a.5.5 0 0 0 .12-.64l-1.92-3.32a.5.5 0 0 0-.6-.22l-2.39.96a7.03 7.03 0 0 0-1.63-.94l-.36-2.54a.5.5 0 0 0-.5-.42h-3.84a.5.5 0 0 0-.5.42l-.36 2.54c-.6.23-1.15.54-1.63.94l-2.39-.96a.5.5 0 0 0-.6.22L2.71 8.84a.5.5 0 0 0 .12.64l2.03 1.58c-.04.31-.06.63-.06.94s.02.63.06.94L2.83 14.52a.5.5 0 0 0-.12.64l1.92 3.32c.13.23.4.32.64.22l2.39-.96c.48.4 1.03.72 1.63.94l.36 2.54c.05.24.26.42.5.42h3.84c.24 0 .45-.18.5-.42l.36-2.54c.6-.23 1.15-.54 1.63-.94l2.39.96c.23.1.5 0 .64-.22l1.92-3.32a.5.5 0 0 0-.12-.64l-2.03-1.58zM12 15.6A3.6 3.6 0 1 1 12 8.4a3.6 3.6 0 0 1 0 7.2z"/></svg>
+      </span>
       Settings
     </button>
   </nav>
@@ -270,7 +283,7 @@
   </div>
 </div>
 
-<script src="vendor/leaflet.js?v=68"></script>
-<script src="app.js?v=68"></script>
+<script src="vendor/leaflet.js?v=69"></script>
+<script src="app.js?v=69"></script>
 </body>
 </html>
