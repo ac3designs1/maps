@@ -68,6 +68,21 @@ function relTime(ts) {
   if (d < 86400_000) return `${Math.floor(d/3600_000)}h ago`;
   return new Date(ts).toLocaleDateString();
 }
+function dwellMinutes(s) {
+  const n = Number(s?.dwellMin);
+  return Number.isFinite(n) && n > 0 ? Math.min(180, Math.round(n)) : 0;
+}
+function cycleDwell(cur) {
+  const steps = [0, 5, 10, 15, 30, 45, 60];
+  const i = steps.indexOf(cur);
+  return steps[i < 0 ? 1 : (i + 1) % steps.length];
+}
+function tripDwellMin(trip = S.trip) {
+  return (trip?.stops || []).reduce((n, s) => {
+    if (isHereStop(s) || !Number.isFinite(s.lat)) return n;
+    return n + dwellMinutes(s);
+  }, 0);
+}
 function filledStops(trip = S.trip)   { return (trip?.stops||[]).filter(s=>(s.label||s.query||"").trim()); }
 function geocodedStops(trip = S.trip) { return (trip?.stops||[]).filter(s=>Number.isFinite(s.lat)&&Number.isFinite(s.lng)); }
 function isHereStop(s) {
@@ -151,7 +166,47 @@ function openModal(title, html) {
   $("modalBody").innerHTML = html;
   $("modal").classList.remove("hidden");
 }
-function closeModal() { $("modal").classList.add("hidden"); }
+function closeModal() {
+  $("modal").classList.add("hidden");
+  pendingConfirm = null;
+}
+let pendingConfirm = null;
+function askConfirm(title, message, onYes) {
+  pendingConfirm = onYes;
+  openModal(title, `<div class="modal-pad">
+    <p class="modal-hint" style="margin-bottom:0">${esc(message)}</p>
+    <div class="modal-actions">
+      <button type="button" id="confirmNo" class="btn-secondary" style="flex:1">Cancel</button>
+      <button type="button" id="confirmYes" class="btn-danger" style="flex:1">Delete</button>
+    </div>
+  </div>`);
+}
+function closeAllTripSwipes(except) {
+  $("tripList")?.querySelectorAll(".trip-swipe.is-open, .trip-swipe.is-dragging").forEach(el => {
+    if (el === except) return;
+    el.classList.remove("is-open", "is-dragging");
+    const f = el.querySelector(".trip-front");
+    if (f) f.style.transform = "";
+  });
+}
+function deleteTripFromList(id) {
+  const prev = (S.records || []).slice();
+  setRecords(prev.filter(t => t.id !== id));
+  forgetLast(id);
+  if (S.trip?.id === id) {
+    S.trip = null; S.route = null; S.navigating = false;
+    $("stopList").innerHTML = "";
+    showList();
+  }
+  renderList();
+  toast("Trip deleted", () => { setRecords(prev); renderList(); });
+  _analytics?.ping("delete");
+}
+function confirmDeleteTrip(id) {
+  const trip = (S.records || []).find(t => t.id === id);
+  const name = String(trip?.title || "this trip").trim() || "this trip";
+  askConfirm("Delete trip?", `Delete “${name}”?`, () => deleteTripFromList(id));
+}
 $("modalBack").onclick   = closeModal;
 $("modalClose").onclick  = closeModal;
 $("modal").addEventListener("click", e => {
@@ -210,6 +265,21 @@ function emptyTrip() {
     avoidTolls:false, avoidFerries:false, starred:false,
     createdAt:now, updatedAt:now,
     stops: [{id:uid(),query:"",label:"",lat:null,lng:null},{id:uid(),query:"",label:"",lat:null,lng:null}] };
+}
+function duplicateTrip(id) {
+  const raw = (S.records || readLocal()).find(t => t.id === id);
+  if (!raw) { toast("Trip not found"); return null; }
+  const c = JSON.parse(JSON.stringify(raw));
+  c.id = uid();
+  const base = String(c.title || "Trip").replace(/\s+copy$/i, "").trim() || "Trip";
+  c.title = `${base} copy`;
+  c.starred = false;
+  c.createdAt = c.updatedAt = Date.now();
+  c.stops = (c.stops || []).map(s => ({ ...s, id: uid() }));
+  setRecords([c, ...(S.records || [])]);
+  renderList();
+  toast("Duplicated");
+  return c;
 }
 function setRecords(trips) { S.records=trips; writeLocal(trips); S.trips=trips.map(summarize); }
 
@@ -423,15 +493,24 @@ function renderList() {
       ? ((words[0][0]||"")+(words[1][0]||"")).toUpperCase()
       : (t.title||"?").replace(/\s+/g,"").slice(0,2).toUpperCase() || "?";
     const badgeCls = t.starred ? "trip-badge starred-badge" : "trip-badge";
-    return `<button type="button" class="trip-row" data-id="${t.id}">
-      <span class="${badgeCls}">${t.starred?"★":esc(initials)}</span>
-      <span class="trip-info">
-        <span class="trip-name">${esc(t.title||"Untitled trip")}</span>
-        <span class="trip-sub">${esc(t.preview||"No stops yet")}</span>
-      </span>
-      <span class="trip-meta">${esc(stats)}<br><span style="font-size:11px">${t.stopCount||0} stop${t.stopCount===1?"":"s"}</span></span>
-      <svg class="trip-chev" viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 18l6-6-6-6"/></svg>
-    </button>`;
+    return `<div class="trip-swipe" data-id="${t.id}">
+      <button type="button" class="trip-del-reveal" data-del="${t.id}">Delete</button>
+      <div class="trip-front">
+        <div class="trip-row">
+          <button type="button" class="trip-open" data-id="${t.id}">
+            <span class="${badgeCls}">${t.starred?"★":esc(initials)}</span>
+            <span class="trip-info">
+              <span class="trip-name">${esc(t.title||"Untitled trip")}</span>
+              <span class="trip-sub">${esc(t.preview||"No stops yet")}</span>
+            </span>
+            <span class="trip-meta">${esc(stats)}<br><span style="font-size:11px">${t.stopCount||0} stop${t.stopCount===1?"":"s"}</span></span>
+          </button>
+          <button type="button" class="trip-dup" data-dup="${t.id}" aria-label="Duplicate trip">
+            <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+          </button>
+        </div>
+      </div>
+    </div>`;
   }).join("");
   renderContinue();
 }
@@ -629,13 +708,23 @@ function renderSugRow(h, i) {
   const dist = esc(fmtSugDist(h.distanceM));
   const me = h.here ? ` data-me="1"` : "";
   const pin = h.pin ? ` data-pin="${esc(h.pin)}"` : "";
-  return `<button type="button" class="sug-row${i===S.sugI?" is-on":""}" data-i="${i}"${me}${pin}>
+  const hours = h.openNow === true
+    ? (h.hours && !/^closed/i.test(h.hours) ? `Open · ${h.hours}` : "Open")
+    : h.openNow === false ? "Closed" : (h.hours || "");
+  const hoursCls = h.openNow === true ? "sug-open" : h.openNow === false ? "sug-closed" : "";
+  const tel = String(h.phone || "").replace(/[^\d+]/g, "");
+  const call = tel ? `<a class="sug-call" href="tel:${esc(tel)}" aria-label="Call">
+    <svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor"><path d="M6.6 10.8c1.4 2.8 3.8 5.2 6.6 6.6l2.2-2.2c.3-.3.7-.4 1.1-.3 1.2.4 2.5.6 3.8.6.6 0 1 .4 1 1V20c0 .6-.4 1-1 1C10.6 21 3 13.4 3 4c0-.6.4-1 1-1h3.5c.6 0 1 .4 1 1 0 1.3.2 2.6.6 3.8.1.4 0 .8-.3 1.1L6.6 10.8z"/></svg>
+  </a>` : "";
+  return `<div class="sug-row${i===S.sugI?" is-on":""}" data-i="${i}" role="button"${me}${pin}>
     <span class="sug-ico ${cls}">${svg}</span>
     <span class="sug-text">
       <span class="sug-top"><span class="sug-name">${name}</span>${dist?`<span class="sug-dist">${dist}</span>`:""}</span>
       ${addr?`<span class="sug-addr">${addr}</span>`:""}
+      ${hours?`<span class="sug-hours ${hoursCls}">${esc(hours)}</span>`:""}
     </span>
-  </button>`;
+    ${call}
+  </div>`;
 }
 
 function renderSuggestRows(hits) {
@@ -796,9 +885,11 @@ async function pickSugRow(btn) {
 }
 
 $("suggestBox").addEventListener("pointerdown", e => {
+  if (e.target.closest(".sug-call")) return;
   if (e.target.closest(".sug-row")) e.preventDefault();
 });
 $("suggestBox").addEventListener("click", async e => {
+  if (e.target.closest(".sug-call")) { e.stopPropagation(); return; }
   const btn = e.target.closest(".sug-row");
   if (!btn) return;
   e.preventDefault();
@@ -885,7 +976,12 @@ function updateRowMeta() {
     const legEl = row.querySelector(".leg-meta");
     if (legEl) {
       const leg = S.route?.legs?.[i-1];
-      legEl.textContent = i>0&&leg ? `${fmtDur(leg.durationS)} · ${fmtKm(leg.distanceM)}` : "";
+      const drive = i>0&&leg ? `${fmtDur(leg.durationS)} · ${fmtKm(leg.distanceM)}` : "";
+      const waitN = dwellMinutes(s);
+      const wait = !isHereStop(s) && Number.isFinite(s.lat)
+        ? `<button type="button" class="dwell-btn" data-act="dwell" data-id="${s.id}">${waitN ? `${waitN} min here` : "Wait"}</button>`
+        : "";
+      legEl.innerHTML = [drive ? `<span>${drive}</span>` : "", wait].filter(Boolean).join("");
     }
   }
   updateSummary();
@@ -932,14 +1028,16 @@ function updateSummary() {
   if (!r||n<2) {
     const hereStart = isHereStop(S.trip.stops[0]);
     title.textContent = n<2 ? (hereStart ? "Add a destination" : "Add two places") : "Can't find a route";
-    sub.textContent   = hereStart && n<2 ? "Search below or tap + Stop" : `${filledStops().length} stop${filledStops().length===1?"":"s"}`;
+    sub.textContent   = hereStart && n<2 ? "Search or tap + Stop" : `${filledStops().length} stop${filledStops().length===1?"":"s"}`;
     start.disabled    = true;
     return;
   }
   title.textContent = `${fmtDur(r.durationS)} · ${fmtKm(r.distanceM)}`;
   const delay = r.trafficDelayS || 0;
   const trafficNote = delay >= 90 ? ` · +${fmtDur(delay)} traffic` : "";
-  sub.textContent   = `${S.trip.title||"Trip"}${S.trip.roundtrip?" · round trip":""}${trafficNote}`;
+  const wait = tripDwellMin();
+  const waitNote = wait ? ` · ${wait} min at stops` : "";
+  sub.textContent   = `${S.trip.title||"Trip"}${S.trip.roundtrip?" · round trip":""}${trafficNote}${waitNote}`;
   start.disabled    = false;
 }
 
@@ -953,6 +1051,7 @@ function updateNudge() {
   const show = !nudgeDismissed && !S.trip?.roundtrip && pts.length >= 3 && S.route && !S.routing;
   nudge.classList.toggle("hidden", !show);
   $("btnOptimise")?.classList.toggle("is-hot", pts.length >= 3 && !S.routing);
+  $("btnOptimise")?.classList.toggle("hidden", pts.length < 3 && !$("btnOptimise")?.classList.contains("loading"));
 }
 $("nudgeOptimise")?.addEventListener("click", () => {
   if (S.routing) return;
@@ -1126,11 +1225,20 @@ function bindStopInput(input) {
 
 /* ─── stop list events ─── */
 $("stopList").addEventListener("click", e => {
+  const dwell = e.target.closest(".dwell-btn");
+  if (dwell && S.trip) {
+    const s = S.trip.stops.find(x => x.id === dwell.dataset.id);
+    if (!s || isHereStop(s)) return;
+    s.dwellMin = cycleDwell(dwellMinutes(s));
+    updateRowMeta();
+    scheduleSave();
+    buzz();
+    return;
+  }
   const del = e.target.closest(".del-btn");
   if (del&&S.trip) {
     const i = S.trip.stops.findIndex(s=>s.id===del.dataset.id);
     if (i<0) return;
-    if (isHereStop(S.trip.stops[i])) return toast("Your location stays as the start");
     buzz();
     const prev = JSON.parse(JSON.stringify(S.trip.stops));
     if (S.trip.stops.length<=2) S.trip.stops[i]={id:uid(),query:"",label:"",lat:null,lng:null};
@@ -1306,30 +1414,74 @@ $("searchClear").onclick = () => {
 };
 $("btnNew").onclick      = newTrip;
 $("btnEmptyNew").onclick = newTrip;
+const TRIP_DEL_W = 88;
+let tripSwipeIgnoreClick = false;
 $("tripList").addEventListener("click",e=>{
+  if (tripSwipeIgnoreClick) { e.preventDefault(); e.stopPropagation(); return; }
+  const del=e.target.closest("[data-del]");
+  if (del) { e.preventDefault(); confirmDeleteTrip(del.dataset.del); return; }
+  const swipe=e.target.closest(".trip-swipe");
+  if (swipe?.classList.contains("is-open")) {
+    closeAllTripSwipes();
+    return;
+  }
+  closeAllTripSwipes();
+  const dup=e.target.closest("[data-dup]");
+  if (dup) { e.preventDefault(); duplicateTrip(dup.dataset.dup); return; }
   const row=e.target.closest("[data-id]");
   if (row) openTrip(row.dataset.id);
 });
 
-/* ─── swipe-to-delete trips ─── */
+/* ─── swipe to reveal delete ─── */
 (()=>{
   const list=$("tripList");
-  let sx=0,sy=0,row=null;
-  list.addEventListener("touchstart",e=>{ row=null; const r=e.target.closest(".trip-row"); if(r){row=r;sx=e.changedTouches[0].clientX;sy=e.changedTouches[0].clientY;}},{passive:true});
-  list.addEventListener("touchend",e=>{
-    if(!row)return;
-    const dx=e.changedTouches[0].clientX-sx, dy=Math.abs(e.changedTouches[0].clientY-sy);
-    if(dx<-72&&dy<48){
-      const id=row.dataset.id;
-      const prev=(S.records||[]).slice();
-      setRecords(prev.filter(t=>t.id!==id));
-      forgetLast(id);
-      renderList();
-      toast("Trip deleted",()=>{setRecords(prev);renderList();});
-      _analytics?.ping("delete");
+  let startX=0, startY=0, startOff=0, front=null, swipe=null, dragging=false, pid=null;
+
+  function end(e) {
+    if (!swipe || (e && pid != null && e.pointerId !== pid)) return;
+    const s = swipe, f = front, wasDrag = dragging;
+    const x = startOff + ((e ? e.clientX : startX) - startX);
+    s.classList.remove("is-dragging");
+    if (wasDrag) {
+      tripSwipeIgnoreClick = true;
+      setTimeout(() => { tripSwipeIgnoreClick = false; }, 80);
+      const open = x < -TRIP_DEL_W * 0.4;
+      s.classList.toggle("is-open", open);
+      if (f) f.style.transform = "";
     }
-    row=null;
-  },{passive:true});
+    swipe = null; front = null; dragging = false; pid = null;
+  }
+
+  list.addEventListener("pointerdown", e => {
+    if (e.target.closest("[data-del]")) return;
+    const s = e.target.closest(".trip-swipe");
+    if (!s) return;
+    swipe = s;
+    front = s.querySelector(".trip-front");
+    startX = e.clientX;
+    startY = e.clientY;
+    startOff = s.classList.contains("is-open") ? -TRIP_DEL_W : 0;
+    dragging = false;
+    pid = e.pointerId;
+  });
+  list.addEventListener("pointermove", e => {
+    if (!swipe || e.pointerId !== pid) return;
+    const dx = e.clientX - startX;
+    const dy = e.clientY - startY;
+    if (!dragging) {
+      if (Math.abs(dx) < 10 && Math.abs(dy) < 10) return;
+      if (Math.abs(dy) > Math.abs(dx)) { swipe = null; front = null; pid = null; return; }
+      dragging = true;
+      swipe.classList.add("is-dragging");
+      closeAllTripSwipes(swipe);
+      try { swipe.setPointerCapture(e.pointerId); } catch {}
+    }
+    e.preventDefault();
+    const x = Math.max(-TRIP_DEL_W, Math.min(0, startOff + dx));
+    if (front) front.style.transform = `translateX(${x}px)`;
+  }, { passive: false });
+  list.addEventListener("pointerup", end);
+  list.addEventListener("pointercancel", end);
 })();
 
 /* ─── modal body builders ─── */
@@ -1371,6 +1523,7 @@ function moreBody() {
   const pins = readPins();
   const homeLabel = (pins.home?.label||"Not set").split(",")[0];
   const workLabel = (pins.work?.label||"Not set").split(",")[0];
+  const hasHere = t.stops.some(isHereStop);
   const starSvg = `<svg viewBox="0 0 24 24" width="16" height="16" fill="${t.starred?"currentColor":"none"}" stroke="currentColor" stroke-width="2"><path d="M12 2l3.09 6.26L22 9.27l-5 4.87L18.18 21 12 17.77 5.82 21 7 14.14 2 9.27l6.91-1.01z"/></svg>`;
   return `
   <div class="modal-field">
@@ -1378,24 +1531,33 @@ function moreBody() {
     <input id="renameTitle" value="${esc(t.title||"")}" placeholder="Untitled trip"/>
   </div>
   <div class="msec">
+    <p class="msec-label">Trip</p>
+    <button class="mrow" data-more="paste">${ico(`<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"><rect x="8" y="8" width="12" height="12" rx="2"/><path d="M16 8V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h2"/></svg>`)}Paste addresses</button>
+    <button class="mrow" data-more="reverse">${ico(`<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 1l4 4-4 4M7 23l-4-4 4-4"/><path d="M3 11V9a4 4 0 0 1 4-4h14M21 13v2a4 4 0 0 1-4 4H3"/></svg>`)}Reverse stops</button>
+    <button class="mrow" data-more="share">${ico(`<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"><circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><path d="M8.6 13.5l6.8 4M15.4 6.5l-6.8 4"/></svg>`)}Share</button>
+    ${hasHere?"":`<button class="mrow" data-more="here">${ico(`<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3"/></svg>`)}Add your location</button>`}
+    <button class="mrow" data-more="dup">${ico(`<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>`)}Duplicate trip</button>
     <button class="mrow" data-more="star">${ico(starSvg)}${t.starred?"Starred":"Star this trip"}<span class="mrow-sub">${t.starred?"★":""}</span></button>
-    <button class="mrow${t.roundtrip?" checked":""}" data-more="round">${ico(`<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 1l4 4-4 4M7 23l-4-4 4-4"/><path d="M3 11V9a4 4 0 0 1 4-4h14M21 13v2a4 4 0 0 1-4 4H3"/></svg>`)}Round trip${chk(t.roundtrip)}</button>
   </div>
   <div class="msec">
+    <p class="msec-label">Route</p>
+    <button class="mrow${t.roundtrip?" checked":""}" data-more="round">${ico(`<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 1l4 4-4 4M7 23l-4-4 4-4"/><path d="M3 11V9a4 4 0 0 1 4-4h14M21 13v2a4 4 0 0 1-4 4H3"/></svg>`)}Round trip${chk(t.roundtrip)}</button>
     <button class="mrow${t.avoidTolls?" checked":""}" data-more="tolls">${ico(`<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="7" width="20" height="14" rx="2"/><path d="M12 11v6M9 14h6"/><path d="M7 7V5a5 5 0 0 1 10 0v2"/></svg>`)}Avoid tolls${chk(t.avoidTolls)}</button>
     <button class="mrow${t.avoidFerries?" checked":""}" data-more="ferries">${ico(`<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"><path d="M2 21c.6.5 1.2 1 2.5 1 2.5 0 2.5-2 5-2 1.3 0 1.9.5 2.5 1 .6.5 1.2 1 2.5 1 2.5 0 2.5-2 5-2 1.3 0 1.9.5 2.5 1"/><path d="M19 11H5L3 8h18z"/><path d="M12 3v5M8 8V5h8v3"/></svg>`)}Avoid ferries${chk(t.avoidFerries)}</button>
     <button class="mrow" data-more="refresh">${ico(`<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"><path d="M23 4v6h-6"/><path d="M1 20v-6h6"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>`)}Refresh route</button>
   </div>
   <div class="msec">
+    <p class="msec-label">Places</p>
     <button class="mrow" data-more="home">${ico(`<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"><path d="M10 20v-6h4v6h5v-8h3L12 3 2 12h3v8z"/></svg>`)}Home<span class="mrow-sub">${esc(homeLabel)}</span></button>
     <button class="mrow" data-more="work">${ico(`<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="7" width="20" height="14" rx="2"/><path d="M16 7V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v2"/></svg>`)}Work<span class="mrow-sub">${esc(workLabel)}</span></button>
   </div>
   <div class="msec">
+    <p class="msec-label">Navigate</p>
     <button class="mrow" data-more="waze">${ico(`<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="10" r="7"/><path d="M12 17v4M8 21h8"/><circle cx="10" cy="9" r="1" fill="currentColor"/><circle cx="14" cy="9" r="1" fill="currentColor"/><path d="M10 12s.5 1 2 1 2-1 2-1"/></svg>`)}Open in Waze</button>
     <button class="mrow" data-more="google">${ico(`<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2a7 7 0 0 0-7 7c0 5 7 13 7 13s7-8 7-13a7 7 0 0 0-7-7z"/><circle cx="12" cy="9" r="2.5"/></svg>`)}Open in Google Maps</button>
   </div>
   <div class="msec">
-    <button class="mrow" data-more="dup">${ico(`<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>`)}Duplicate trip</button>
+    <p class="msec-label">Data</p>
     <button class="mrow" data-more="clear">${ico(`<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6M14 11v6"/></svg>`)}Clear all stops</button>
     <button class="mrow" data-more="export">${ico(`<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>`)}Export backup</button>
     <button class="mrow" data-more="import">${ico(`<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>`)}Import backup</button>
@@ -1409,6 +1571,14 @@ function moreBody() {
 $("modalBody").addEventListener("click", e => {
   if (e.target.id==="pasteCancel") return closeModal();
   if (e.target.id==="pasteGo")     return pasteAddresses();
+  if (e.target.id==="confirmNo")   return closeModal();
+  if (e.target.id==="confirmYes") {
+    const fn = pendingConfirm;
+    pendingConfirm = null;
+    closeModal();
+    fn?.();
+    return;
+  }
 
   // Pin picker (Home / Work)
   const pinSave = e.target.closest("[data-pin-save]");
@@ -1429,6 +1599,21 @@ $("modalBody").addEventListener("click", e => {
   const act = more.dataset.more;
   const handlers = {
     star()    { S.trip.starred=!S.trip.starred; closeModal(); scheduleSave(); renderList(); toast(S.trip.starred?"Starred":"Unstarred"); },
+    paste()   { closeModal(); openModal("Paste addresses", pasteBody()); },
+    reverse() { closeModal(); $("btnReverse").click(); },
+    share()   { closeModal(); $("btnShare").click(); },
+    here()    {
+      closeModal();
+      if (!S.here) return toast("Turn on location first");
+      if (S.trip.stops.some(isHereStop)) return toast("Your location is already on the trip");
+      S.trip.stops.unshift({
+        id: uid(), query: hereDisplay(), label: hereDisplay(),
+        lat: S.here.lat, lng: S.here.lng, here: true,
+      });
+      pinHereFirst();
+      syncStops(true); scheduleSave(); scheduleRoute(false);
+      toast("Your location added");
+    },
     tolls()   { S.trip.avoidTolls=!S.trip.avoidTolls; closeModal(); scheduleSave(); scheduleRoute(false); },
     ferries() { S.trip.avoidFerries=!S.trip.avoidFerries; closeModal(); scheduleSave(); scheduleRoute(false); },
     refresh() { closeModal(); scheduleRoute(false); toast("Refreshing route…"); },
@@ -1449,7 +1634,7 @@ $("modalBody").addEventListener("click", e => {
     },
     export()  { closeModal(); exportBackup(); },
     import()  { closeModal(); pickBackupFile(); },
-    dup()     { const c=JSON.parse(JSON.stringify(S.trip)); c.id=uid(); c.title=`${c.title||"Trip"} copy`; c.createdAt=c.updatedAt=Date.now(); c.stops=(c.stops||[]).map(s=>({...s,id:uid()})); setRecords([c,...(S.records||[])]); closeModal(); openTrip(c.id); toast("Duplicated"); },
+    dup()     { const c=duplicateTrip(S.trip.id); closeModal(); if (c) openTrip(c.id); },
     waze()    { closeModal(); openExternal("waze"); },
     google()  { closeModal(); openExternal("google"); },
     del()     {

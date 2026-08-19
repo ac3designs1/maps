@@ -15,8 +15,8 @@
   <link rel="apple-touch-icon" href="icon-180.png"/>
   <link rel="icon" href="icon.svg"/>
   <title>Trips</title>
-  <link rel="stylesheet" href="vendor/leaflet.css?v=48"/>
-  <link rel="stylesheet" href="styles.css?v=48"/>
+  <link rel="stylesheet" href="vendor/leaflet.css?v=55"/>
+  <link rel="stylesheet" href="styles.css?v=55"/>
 </head>
 <body>
 
@@ -68,7 +68,7 @@
     </div>
     <h2>No trips yet</h2>
     <p>Add addresses, optimise your route,<br>and navigate stop by stop.</p>
-    <button id="btnEmptyNew" class="btn-primary">Start a trip</button>
+    <button id="btnEmptyNew" class="btn-primary" type="button">Start a trip</button>
   </div>
 </section>
 
@@ -96,9 +96,9 @@
         <strong id="summaryTime">Add a destination</strong>
         <span id="summaryMeta">Search below or tap + Stop</span>
       </div>
-      <button id="btnMapToggle" class="pill-btn">
-        <svg id="mapToggleIcon" viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M1 6l7-3 8 3 7-3v15l-7 3-8-3-7 3V6z"/><path d="M8 3v15M16 6v15"/></svg>
-        <span id="mapToggleLabel">Map</span>
+      <button id="btnMapToggle" class="pill-btn" aria-label="Map or list">
+        <svg id="mapToggleIcon" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M1 6l7-3 8 3 7-3v15l-7 3-8-3-7 3V6z"/><path d="M8 3v15M16 6v15"/></svg>
+        <span id="mapToggleLabel" class="vh">Map</span>
       </button>
       <button id="btnStart" class="btn-start" disabled>Start</button>
     </div>
@@ -126,11 +126,13 @@
     <!-- action row -->
     <div class="action-row">
       <button id="btnAddStop"  class="action-chip">+ Stop</button>
-      <button id="btnPaste"    class="action-chip">Paste</button>
-      <button id="btnReverse"  class="action-chip">Reverse</button>
-      <button id="btnOptimise" class="action-chip">Optimise</button>
-      <button id="btnShare"    class="action-chip">Share</button>
+      <button id="btnOptimise" class="action-chip hidden">Optimise</button>
       <button id="btnMore"     class="action-chip">More</button>
+    </div>
+    <div class="hidden" aria-hidden="true">
+      <button id="btnPaste" type="button">Paste</button>
+      <button id="btnReverse" type="button">Reverse</button>
+      <button id="btnShare" type="button">Share</button>
     </div>
   </div>
 </section>
@@ -185,7 +187,7 @@
   </div>
 </div>
 
-<script src="vendor/leaflet.js?v=48"></script>
-<script src="app.js?v=48"></script>
+<script src="vendor/leaflet.js?v=55"></script>
+<script src="app.js?v=55"></script>
 </body>
 </html>

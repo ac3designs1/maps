@@ -10,6 +10,9 @@ export type SuggestHit = {
   placeId?: string;
   distanceM?: number;
   searchQuery?: string;
+  phone?: string;
+  openNow?: boolean;
+  hours?: string;
 };
 
 const AREA_WORDS = new Set([

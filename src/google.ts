@@ -95,22 +95,128 @@ function dedupeHits(hits: SuggestHit[]) {
   return dedupeSuggestHits(hits);
 }
 
-export async function googlePlace(placeId: string): Promise<SuggestHit | null> {
+function australiaBias() {
+  return {
+    rectangle: {
+      low: { latitude: AU.minLat, longitude: AU.minLng },
+      high: { latitude: AU.maxLat, longitude: AU.maxLng },
+    },
+  };
+}
+
+async function withLegacy<T>(primary: () => Promise<T>, fallback: () => Promise<T>): Promise<T> {
+  try {
+    return await primary();
+  } catch (err) {
+    console.warn("Places API (New):", err instanceof Error ? err.message : err);
+    return fallback();
+  }
+}
+
+function weekdayHours(descs?: string[]) {
+  if (!descs?.length) return "";
+  const i = (new Date().getDay() + 6) % 7;
+  return String(descs[i] || "").replace(/^[^:]+:\s*/i, "").trim();
+}
+
+function placeContact(p: {
+  nationalPhoneNumber?: string;
+  internationalPhoneNumber?: string;
+  formatted_phone_number?: string;
+  international_phone_number?: string;
+  currentOpeningHours?: { openNow?: boolean; weekdayDescriptions?: string[] };
+  regularOpeningHours?: { weekdayDescriptions?: string[] };
+  opening_hours?: { open_now?: boolean; weekday_text?: string[] };
+}): Pick<SuggestHit, "phone" | "openNow" | "hours"> {
+  const phone = (
+    p.nationalPhoneNumber ||
+    p.internationalPhoneNumber ||
+    p.formatted_phone_number ||
+    p.international_phone_number ||
+    ""
+  ).trim();
+  const openNow = p.currentOpeningHours?.openNow ?? p.opening_hours?.open_now;
+  const hours = weekdayHours(
+    p.currentOpeningHours?.weekdayDescriptions ||
+      p.regularOpeningHours?.weekdayDescriptions ||
+      p.opening_hours?.weekday_text,
+  );
+  const extra: Pick<SuggestHit, "phone" | "openNow" | "hours"> = {};
+  if (phone) extra.phone = phone;
+  if (openNow === true || openNow === false) extra.openNow = openNow;
+  if (hours) extra.hours = hours;
+  return extra;
+}
+
+function hitFromNameAddr(
+  name: string,
+  addr: string,
+  lat: number,
+  lng: number,
+  types: string[],
+  placeId?: string,
+  extra?: Pick<SuggestHit, "phone" | "openNow" | "hours">,
+): SuggestHit {
+  return {
+    placeId: placeId ? placeId.replace(/^places\//, "") : undefined,
+    label: placeLabel(name, addr),
+    lat,
+    lng,
+    kind: kindFromTypes(types),
+    name: name || tidyAddr(addr) || addr,
+    sub: tidyAddr(addr, name),
+    ...extra,
+  };
+}
+
+async function googlePlaceNew(id: string): Promise<SuggestHit | null> {
   const key = googleKey();
-  const id = placeId.replace(/^places\//, "").trim();
-  if (!id) return null;
+  const data = (await googleFetch(`https://places.googleapis.com/v1/places/${encodeURIComponent(id)}`, {
+    headers: {
+      "X-Goog-Api-Key": key,
+      "X-Goog-FieldMask": "id,displayName,formattedAddress,location,types,nationalPhoneNumber,internationalPhoneNumber,currentOpeningHours.openNow,currentOpeningHours.weekdayDescriptions,regularOpeningHours.weekdayDescriptions",
+    },
+  })) as {
+    id?: string;
+    displayName?: { text?: string };
+    formattedAddress?: string;
+    location?: { latitude?: number; longitude?: number };
+    nationalPhoneNumber?: string;
+    internationalPhoneNumber?: string;
+    currentOpeningHours?: { openNow?: boolean; weekdayDescriptions?: string[] };
+    regularOpeningHours?: { weekdayDescriptions?: string[] };
+    types?: string[];
+  };
+  const la = data.location?.latitude;
+  const ln = data.location?.longitude;
+  if (!Number.isFinite(la) || !Number.isFinite(ln) || !inAustralia(la as number, ln as number)) return null;
+  return hitFromNameAddr(
+    data.displayName?.text || "",
+    data.formattedAddress || "",
+    la as number,
+    ln as number,
+    data.types || [],
+    data.id || id,
+    placeContact(data),
+  );
+}
+
+async function googlePlaceLegacy(id: string): Promise<SuggestHit | null> {
   const u = new URL("https://maps.googleapis.com/maps/api/place/details/json");
   u.searchParams.set("place_id", id);
-  u.searchParams.set("fields", "place_id,name,formatted_address,geometry,types");
+  u.searchParams.set("fields", "place_id,name,formatted_address,geometry,types,formatted_phone_number,international_phone_number,opening_hours");
   u.searchParams.set("language", "en-AU");
   u.searchParams.set("region", "au");
-  u.searchParams.set("key", key);
+  u.searchParams.set("key", googleKey());
   const data = (await googleMapsJson(u.toString())) as {
     result?: {
       place_id?: string;
       name?: string;
       formatted_address?: string;
       geometry?: { location?: { lat?: number; lng?: number } };
+      formatted_phone_number?: string;
+      international_phone_number?: string;
+      opening_hours?: { open_now?: boolean; weekday_text?: string[] };
       types?: string[];
     };
   };
@@ -118,21 +224,101 @@ export async function googlePlace(placeId: string): Promise<SuggestHit | null> {
   const la = r?.geometry?.location?.lat;
   const ln = r?.geometry?.location?.lng;
   if (!Number.isFinite(la) || !Number.isFinite(ln) || !inAustralia(la as number, ln as number)) return null;
-  const name = r?.name || "";
-  const addr = r?.formatted_address || "";
-  return {
-    placeId: (r?.place_id || id).replace(/^places\//, ""),
-    label: placeLabel(name, addr),
-    lat: la as number,
-    lng: ln as number,
-    kind: kindFromTypes(r?.types || []),
-    name: name || tidyAddr(addr) || addr,
-    sub: tidyAddr(addr, name),
-  };
+  return hitFromNameAddr(
+    r?.name || "",
+    r?.formatted_address || "",
+    la as number,
+    ln as number,
+    r?.types || [],
+    r?.place_id || id,
+    placeContact(r || {}),
+  );
 }
 
-async function googleAutocomplete(query: string, lat?: number, lon?: number): Promise<SuggestHit[]> {
+export async function googlePlace(placeId: string): Promise<SuggestHit | null> {
+  const id = placeId.replace(/^places\//, "").trim();
+  if (!id) return null;
+  return withLegacy(() => googlePlaceNew(id), () => googlePlaceLegacy(id));
+}
+
+async function googleAutocompleteNew(query: string, lat?: number, lon?: number): Promise<SuggestHit[]> {
   const key = googleKey();
+  const bias = biasPoint(lat, lon);
+  const data = (await googleFetch("https://places.googleapis.com/v1/places:autocomplete", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "X-Goog-Api-Key": key,
+      "X-Goog-FieldMask":
+        "suggestions.placePrediction.placeId,suggestions.placePrediction.place,suggestions.placePrediction.text,suggestions.placePrediction.structuredFormat,suggestions.placePrediction.types,suggestions.placePrediction.distanceMeters,suggestions.queryPrediction.text,suggestions.queryPrediction.structuredFormat",
+    },
+    body: JSON.stringify({
+      input: query,
+      languageCode: "en-AU",
+      regionCode: "au",
+      includeQueryPredictions: true,
+      includePureServiceAreaBusinesses: true,
+      origin: { latitude: bias.lat, longitude: bias.lon },
+      locationBias: australiaBias(),
+    }),
+  }, 8000)) as {
+    suggestions?: Array<{
+      placePrediction?: {
+        placeId?: string;
+        place?: string;
+        distanceMeters?: number;
+        text?: { text?: string };
+        structuredFormat?: { mainText?: { text?: string }; secondaryText?: { text?: string } };
+        types?: string[];
+      };
+      queryPrediction?: {
+        text?: { text?: string };
+        structuredFormat?: { mainText?: { text?: string }; secondaryText?: { text?: string } };
+      };
+    }>;
+  };
+
+  const hits: SuggestHit[] = [];
+  for (const s of data.suggestions || []) {
+    const qp = s.queryPrediction;
+    if (qp) {
+      const text = (qp.structuredFormat?.mainText?.text || qp.text?.text || "").trim();
+      if (text) {
+        hits.push({
+          kind: "query",
+          name: text,
+          sub: qp.structuredFormat?.secondaryText?.text || "",
+          label: text,
+          searchQuery: text,
+          lat: null,
+          lng: null,
+        });
+      }
+      continue;
+    }
+    const p = s.placePrediction;
+    if (!p) continue;
+    const id = (p.placeId || p.place || "").replace(/^places\//, "");
+    if (!id) continue;
+    const full = (p.text?.text || "").trim();
+    const name = p.structuredFormat?.mainText?.text || (full.split(",")[0] || "").trim();
+    const sub = tidyAddr(p.structuredFormat?.secondaryText?.text || (full.includes(",") ? full.slice(full.indexOf(",") + 1) : ""), name);
+    if (!name && !sub) continue;
+    hits.push({
+      placeId: id,
+      name: name || sub,
+      sub,
+      label: [name, sub].filter(Boolean).join(", "),
+      lat: null,
+      lng: null,
+      kind: kindFromTypes(p.types || []),
+      distanceM: Number.isFinite(p.distanceMeters) ? p.distanceMeters : undefined,
+    });
+  }
+  return hits.slice(0, 10);
+}
+
+async function googleAutocompleteLegacy(query: string, lat?: number, lon?: number): Promise<SuggestHit[]> {
   const bias = biasPoint(lat, lon);
   const u = new URL("https://maps.googleapis.com/maps/api/place/autocomplete/json");
   u.searchParams.set("input", query);
@@ -141,7 +327,7 @@ async function googleAutocomplete(query: string, lat?: number, lon?: number): Pr
   u.searchParams.set("components", "country:au");
   u.searchParams.set("location", `${bias.lat},${bias.lon}`);
   u.searchParams.set("origin", `${bias.lat},${bias.lon}`);
-  u.searchParams.set("key", key);
+  u.searchParams.set("key", googleKey());
 
   const data = (await googleMapsJson(u.toString())) as {
     predictions?: Array<{
@@ -175,13 +361,65 @@ async function googleAutocomplete(query: string, lat?: number, lon?: number): Pr
   return hits.slice(0, 10);
 }
 
-async function googleTextSearch(query: string, lat?: number, lon?: number): Promise<SuggestHit[]> {
+async function googleAutocomplete(query: string, lat?: number, lon?: number) {
+  return withLegacy(() => googleAutocompleteNew(query, lat, lon), () => googleAutocompleteLegacy(query, lat, lon));
+}
+
+async function googleTextSearchNew(query: string): Promise<SuggestHit[]> {
   const key = googleKey();
+  const data = (await googleFetch("https://places.googleapis.com/v1/places:searchText", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "X-Goog-Api-Key": key,
+      "X-Goog-FieldMask": "places.id,places.displayName,places.formattedAddress,places.location,places.types,places.nationalPhoneNumber,places.internationalPhoneNumber,places.currentOpeningHours.openNow,places.currentOpeningHours.weekdayDescriptions,places.regularOpeningHours.weekdayDescriptions",
+    },
+    body: JSON.stringify({
+      textQuery: query,
+      regionCode: "au",
+      languageCode: "en-AU",
+      maxResultCount: 15,
+      includePureServiceAreaBusinesses: true,
+      locationBias: australiaBias(),
+    }),
+  }, 8000)) as {
+    places?: Array<{
+      id?: string;
+      displayName?: { text?: string };
+      formattedAddress?: string;
+      location?: { latitude?: number; longitude?: number };
+      nationalPhoneNumber?: string;
+      internationalPhoneNumber?: string;
+      currentOpeningHours?: { openNow?: boolean; weekdayDescriptions?: string[] };
+      regularOpeningHours?: { weekdayDescriptions?: string[] };
+      types?: string[];
+    }>;
+  };
+
+  const hits: SuggestHit[] = [];
+  for (const place of data.places || []) {
+    const la = place.location?.latitude;
+    const ln = place.location?.longitude;
+    if (!Number.isFinite(la) || !Number.isFinite(ln) || !inAustralia(la as number, ln as number)) continue;
+    hits.push(hitFromNameAddr(
+      place.displayName?.text || "",
+      place.formattedAddress || "",
+      la as number,
+      ln as number,
+      place.types || [],
+      place.id,
+      placeContact(place),
+    ));
+  }
+  return hits;
+}
+
+async function googleTextSearchLegacy(query: string, lat?: number, lon?: number): Promise<SuggestHit[]> {
   const u = new URL("https://maps.googleapis.com/maps/api/place/textsearch/json");
   u.searchParams.set("query", query);
   u.searchParams.set("region", "au");
   u.searchParams.set("language", "en");
-  u.searchParams.set("key", key);
+  u.searchParams.set("key", googleKey());
   if (Number.isFinite(lat) && Number.isFinite(lon)) {
     u.searchParams.set("location", `${lat},${lon}`);
   }
@@ -192,6 +430,7 @@ async function googleTextSearch(query: string, lat?: number, lon?: number): Prom
       name?: string;
       formatted_address?: string;
       types?: string[];
+      opening_hours?: { open_now?: boolean; weekday_text?: string[] };
       geometry?: { location?: { lat?: number; lng?: number } };
     }>;
   };
@@ -201,19 +440,21 @@ async function googleTextSearch(query: string, lat?: number, lon?: number): Prom
     const la = place.geometry?.location?.lat;
     const ln = place.geometry?.location?.lng;
     if (!Number.isFinite(la) || !Number.isFinite(ln) || !inAustralia(la as number, ln as number)) continue;
-    const name = place.name || "";
-    const addr = place.formatted_address || "";
-    hits.push({
-      placeId: place.place_id,
-      label: placeLabel(name, addr),
-      lat: la as number,
-      lng: ln as number,
-      kind: kindFromTypes(place.types || []),
-      name: name || tidyAddr(addr) || addr,
-      sub: tidyAddr(addr, name),
-    });
+    hits.push(hitFromNameAddr(
+      place.name || "",
+      place.formatted_address || "",
+      la as number,
+      ln as number,
+      place.types || [],
+      place.place_id,
+      placeContact(place),
+    ));
   }
   return hits;
+}
+
+async function googleTextSearch(query: string, lat?: number, lon?: number) {
+  return withLegacy(() => googleTextSearchNew(query), () => googleTextSearchLegacy(query, lat, lon));
 }
 
 export async function googleSuggest(q: string, lat?: number, lon?: number): Promise<SuggestHit[]> {
