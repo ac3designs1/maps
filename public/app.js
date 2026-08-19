@@ -585,6 +585,19 @@ function renderContinue() {
   card.classList.remove("hidden");
 }
 
+function tabPane(name) {
+  if (name === "trips") return $("tripsPane");
+  if (name === "settings") return $("settingsPane");
+  return $("homePane");
+}
+function scrollPaneTop(pane) {
+  if (!pane) return;
+  pane.scrollTop = 0;
+  requestAnimationFrame(() => {
+    pane.scrollTop = 0;
+    requestAnimationFrame(() => { pane.scrollTop = 0; });
+  });
+}
 function showTab(name) {
   const tab = name === "trips" || name === "settings" ? name : "home";
   const current = document.querySelector(".tab-btn.is-on")?.dataset.tab;
@@ -595,6 +608,7 @@ function showTab(name) {
   try { localStorage.setItem("maps.tab", tab); } catch {}
   if (tab === "settings") renderSettings();
   if (tab === "home") renderHome();
+  scrollPaneTop(tabPane(tab));
   return current === tab;
 }
 
@@ -1779,13 +1793,18 @@ $("searchClear").onclick = () => {
 $("btnNew").onclick      = newTrip;
 $("btnEmptyNew").onclick = newTrip;
 $("btnLibNew")?.addEventListener("click", newTrip);
+$("tabBar")?.addEventListener("pointerdown", e => {
+  const btn = e.target.closest("[data-tab]");
+  btn?.focus?.({ preventScroll: true });
+});
 $("tabBar")?.addEventListener("click", e => {
   const btn = e.target.closest("[data-tab]");
   if (!btn) return;
+  btn.focus?.({ preventScroll: true });
   const name = btn.dataset.tab;
-  const pane = name === "trips" ? $("tripsPane") : name === "settings" ? $("settingsPane") : $("homePane");
+  const pane = tabPane(name);
   if (document.querySelector(".tab-btn.is-on")?.dataset.tab === name) {
-    pane?.scrollTo({ top: 0, behavior: "smooth" });
+    scrollPaneTop(pane);
     return;
   }
   buzz();

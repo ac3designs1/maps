@@ -131,6 +131,7 @@ button:focus-visible, a:focus-visible { outline:2px solid var(--blue); outline-o
   overflow-x:hidden; overflow-y:auto;
   -webkit-overflow-scrolling:touch;
   overscroll-behavior-y:contain;
+  overflow-anchor:none;
   scrollbar-width:none;
   padding-bottom:16px;
 }
