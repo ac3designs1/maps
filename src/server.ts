@@ -2,8 +2,27 @@ import http from "node:http";
 import os from "node:os";
 import path from "node:path";
 import fs from "node:fs/promises";
-import { createReadStream } from "node:fs";
+import { createReadStream, readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
+
+function loadDotEnv() {
+  try {
+    const raw = readFileSync(path.join(process.cwd(), ".env"), "utf8");
+    for (const line of raw.split(/\r?\n/)) {
+      const t = line.trim();
+      if (!t || t.startsWith("#")) continue;
+      const i = t.indexOf("=");
+      if (i < 0) continue;
+      const k = t.slice(0, i).trim();
+      let v = t.slice(i + 1).trim();
+      if ((v.startsWith('"') && v.endsWith('"')) || (v.startsWith("'") && v.endsWith("'"))) v = v.slice(1, -1);
+      if (k && process.env[k] == null) process.env[k] = v;
+    }
+  } catch {
+    /* no .env */
+  }
+}
+loadDotEnv();
 // Trips are stored per-device in localStorage — no server-side storage.
 import { drivingRoute, geocode, optimizedTrip, reverse, suggest } from "./geo.ts";
 import { googlePlace, hasGoogleKey } from "./google.ts";

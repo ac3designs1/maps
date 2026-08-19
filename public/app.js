@@ -267,6 +267,10 @@ function queryTokens(q) {
   if (/^\d/.test(String(q).trim())) return [];
   return String(q).toLowerCase().split(/[^a-z0-9]+/).filter(t => t.length >= 4);
 }
+function typedQueryHit(q) {
+  const query = String(q || "").trim();
+  return { kind: "query", name: query, sub: "", label: query, searchQuery: query, lat: null, lng: null };
+}
 function hitCoversQuery(h, tokens) {
   if (!tokens.length) return true;
   const hay = `${h?.name || ""} ${h?.sub || ""} ${h?.label || ""} ${h?.searchQuery || ""}`.toLowerCase();
@@ -1014,8 +1018,12 @@ function runSuggest(id, q) {
   S.suggestTimer = setTimeout(async () => {
     if (seq !== S.suggestSeq) return;
     try {
-      const tokens = queryTokens(q);
       let hits = dedupeHits([...local, ...await lookup(q)]);
+      const query = q.trim();
+      if (query.length >= 2 && !hits.some(h => (h.searchQuery || "").toLowerCase() === query.toLowerCase())) {
+        hits = [typedQueryHit(query), ...hits];
+      }
+      const tokens = queryTokens(q);
       if (tokens.length >= 2) {
         const tight = hits.filter(h => h.searchQuery || hitCoversQuery(h, tokens));
         if (tight.length) hits = tight;

@@ -1,5 +1,5 @@
 import type { SuggestHit } from "./geo.ts";
-import { dedupeSuggestHits, hitCoversQuery, placeLabel, queryTokens, tidyAddr } from "./geo.ts";
+import { dedupeSuggestHits, distinctiveTokens, hitCoversQuery, placeLabel, tidyAddr, typedQueryHit } from "./geo.ts";
 
 const BIZ_TYPES = new Set([
   "establishment",
@@ -47,16 +47,6 @@ function biasPoint(lat?: number, lon?: number) {
   return { lat: AU.biasLat, lon: AU.biasLng };
 }
 
-/** Whole of Australia — no city radius. Origin still ranks nearby first. */
-function australiaBias() {
-  return {
-    rectangle: {
-      low: { latitude: AU.minLat, longitude: AU.minLng },
-      high: { latitude: AU.maxLat, longitude: AU.maxLng },
-    },
-  };
-}
-
 function googleKey() {
   return (process.env.GOOGLE_MAPS_API_KEY || process.env.GOOGLE_PLACES_API_KEY || "").trim();
 }
@@ -88,6 +78,15 @@ async function googleFetch(url: string, opts: RequestInit = {}, ms = 12000) {
   }
 }
 
+async function googleMapsJson(url: string, ms = 8000) {
+  const data = (await googleFetch(url, {}, ms)) as Record<string, unknown>;
+  const status = String(data.status || "OK");
+  if (status !== "OK" && status !== "ZERO_RESULTS") {
+    throw new Error(String(data.error_message || status));
+  }
+  return data;
+}
+
 function kindFromTypes(types: string[] = []) {
   return types.some((t) => BIZ_TYPES.has(t)) ? "business" : "address";
 }
@@ -100,30 +99,33 @@ export async function googlePlace(placeId: string): Promise<SuggestHit | null> {
   const key = googleKey();
   const id = placeId.replace(/^places\//, "").trim();
   if (!id) return null;
-  const data = (await googleFetch(`https://places.googleapis.com/v1/places/${encodeURIComponent(id)}`, {
-    headers: {
-      "X-Goog-Api-Key": key,
-      "X-Goog-FieldMask": "id,displayName,formattedAddress,location,types",
-    },
-  })) as {
-    id?: string;
-    displayName?: { text?: string };
-    formattedAddress?: string;
-    location?: { latitude?: number; longitude?: number };
-    types?: string[];
+  const u = new URL("https://maps.googleapis.com/maps/api/place/details/json");
+  u.searchParams.set("place_id", id);
+  u.searchParams.set("fields", "place_id,name,formatted_address,geometry,types");
+  u.searchParams.set("language", "en-AU");
+  u.searchParams.set("region", "au");
+  u.searchParams.set("key", key);
+  const data = (await googleMapsJson(u.toString())) as {
+    result?: {
+      place_id?: string;
+      name?: string;
+      formatted_address?: string;
+      geometry?: { location?: { lat?: number; lng?: number } };
+      types?: string[];
+    };
   };
-
-  const la = data.location?.latitude;
-  const ln = data.location?.longitude;
+  const r = data.result;
+  const la = r?.geometry?.location?.lat;
+  const ln = r?.geometry?.location?.lng;
   if (!Number.isFinite(la) || !Number.isFinite(ln) || !inAustralia(la as number, ln as number)) return null;
-  const name = data.displayName?.text || "";
-  const addr = data.formattedAddress || "";
+  const name = r?.name || "";
+  const addr = r?.formatted_address || "";
   return {
-    placeId: (data.id || id).replace(/^places\//, ""),
+    placeId: (r?.place_id || id).replace(/^places\//, ""),
     label: placeLabel(name, addr),
     lat: la as number,
     lng: ln as number,
-    kind: kindFromTypes(data.types || []),
+    kind: kindFromTypes(r?.types || []),
     name: name || tidyAddr(addr) || addr,
     sub: tidyAddr(addr, name),
   };
@@ -132,67 +134,32 @@ export async function googlePlace(placeId: string): Promise<SuggestHit | null> {
 async function googleAutocomplete(query: string, lat?: number, lon?: number): Promise<SuggestHit[]> {
   const key = googleKey();
   const bias = biasPoint(lat, lon);
-  const body = {
-    input: query,
-    languageCode: "en-AU",
-    regionCode: "au",
-    includeQueryPredictions: true,
-    includePureServiceAreaBusinesses: true,
-    origin: { latitude: bias.lat, longitude: bias.lon },
-    locationBias: australiaBias(),
-  };
+  const u = new URL("https://maps.googleapis.com/maps/api/place/autocomplete/json");
+  u.searchParams.set("input", query);
+  u.searchParams.set("language", "en-AU");
+  u.searchParams.set("region", "au");
+  u.searchParams.set("components", "country:au");
+  u.searchParams.set("location", `${bias.lat},${bias.lon}`);
+  u.searchParams.set("origin", `${bias.lat},${bias.lon}`);
+  u.searchParams.set("key", key);
 
-  const data = (await googleFetch("https://places.googleapis.com/v1/places:autocomplete", {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      "X-Goog-Api-Key": key,
-      "X-Goog-FieldMask":
-        "suggestions.placePrediction.placeId,suggestions.placePrediction.place,suggestions.placePrediction.text,suggestions.placePrediction.structuredFormat,suggestions.placePrediction.types,suggestions.placePrediction.distanceMeters,suggestions.queryPrediction.text,suggestions.queryPrediction.structuredFormat",
-    },
-    body: JSON.stringify(body),
-  }, 8000)) as {
-    suggestions?: Array<{
-      placePrediction?: {
-        placeId?: string;
-        place?: string;
-        distanceMeters?: number;
-        text?: { text?: string };
-        structuredFormat?: { mainText?: { text?: string }; secondaryText?: { text?: string } };
-        types?: string[];
-      };
-      queryPrediction?: {
-        text?: { text?: string };
-        structuredFormat?: { mainText?: { text?: string }; secondaryText?: { text?: string } };
-      };
+  const data = (await googleMapsJson(u.toString())) as {
+    predictions?: Array<{
+      place_id?: string;
+      description?: string;
+      types?: string[];
+      distance_meters?: number;
+      structured_formatting?: { main_text?: string; secondary_text?: string };
     }>;
   };
 
   const hits: SuggestHit[] = [];
-  for (const s of data.suggestions || []) {
-    const qp = s.queryPrediction;
-    if (qp) {
-      const text = (qp.structuredFormat?.mainText?.text || qp.text?.text || "").trim();
-      if (text) {
-        hits.push({
-          kind: "query",
-          name: text,
-          sub: qp.structuredFormat?.secondaryText?.text || "",
-          label: text,
-          searchQuery: text,
-          lat: null,
-          lng: null,
-        });
-      }
-      continue;
-    }
-    const p = s.placePrediction;
-    if (!p) continue;
-    const id = (p.placeId || p.place || "").replace(/^places\//, "");
+  for (const p of data.predictions || []) {
+    const id = (p.place_id || "").trim();
     if (!id) continue;
-    const full = (p.text?.text || "").trim();
-    const name = p.structuredFormat?.mainText?.text || (full.split(",")[0] || "").trim();
-    const sub = tidyAddr(p.structuredFormat?.secondaryText?.text || (full.includes(",") ? full.slice(full.indexOf(",") + 1) : ""), name);
+    const full = (p.description || "").trim();
+    const name = p.structured_formatting?.main_text || (full.split(",")[0] || "").trim();
+    const sub = tidyAddr(p.structured_formatting?.secondary_text || (full.includes(",") ? full.slice(full.indexOf(",") + 1) : ""), name);
     if (!name && !sub) continue;
     hits.push({
       placeId: id,
@@ -202,7 +169,7 @@ async function googleAutocomplete(query: string, lat?: number, lon?: number): Pr
       lat: null,
       lng: null,
       kind: kindFromTypes(p.types || []),
-      distanceM: Number.isFinite(p.distanceMeters) ? p.distanceMeters : undefined,
+      distanceM: Number.isFinite(p.distance_meters) ? p.distance_meters : undefined,
     });
   }
   return hits.slice(0, 10);
@@ -210,41 +177,34 @@ async function googleAutocomplete(query: string, lat?: number, lon?: number): Pr
 
 async function googleTextSearch(query: string, lat?: number, lon?: number): Promise<SuggestHit[]> {
   const key = googleKey();
-  const body = {
-    textQuery: query,
-    regionCode: "au",
-    languageCode: "en",
-    maxResultCount: 15,
-    locationBias: australiaBias(),
-  };
+  const u = new URL("https://maps.googleapis.com/maps/api/place/textsearch/json");
+  u.searchParams.set("query", query);
+  u.searchParams.set("region", "au");
+  u.searchParams.set("language", "en");
+  u.searchParams.set("key", key);
+  if (Number.isFinite(lat) && Number.isFinite(lon)) {
+    u.searchParams.set("location", `${lat},${lon}`);
+  }
 
-  const data = (await googleFetch("https://places.googleapis.com/v1/places:searchText", {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      "X-Goog-Api-Key": key,
-      "X-Goog-FieldMask": "places.id,places.displayName,places.formattedAddress,places.location,places.types",
-    },
-    body: JSON.stringify(body),
-  }, 8000)) as {
-    places?: Array<{
-      id?: string;
-      displayName?: { text?: string };
-      formattedAddress?: string;
-      location?: { latitude?: number; longitude?: number };
+  const data = (await googleMapsJson(u.toString())) as {
+    results?: Array<{
+      place_id?: string;
+      name?: string;
+      formatted_address?: string;
       types?: string[];
+      geometry?: { location?: { lat?: number; lng?: number } };
     }>;
   };
 
   const hits: SuggestHit[] = [];
-  for (const place of data.places || []) {
-    const la = place.location?.latitude;
-    const ln = place.location?.longitude;
+  for (const place of data.results || []) {
+    const la = place.geometry?.location?.lat;
+    const ln = place.geometry?.location?.lng;
     if (!Number.isFinite(la) || !Number.isFinite(ln) || !inAustralia(la as number, ln as number)) continue;
-    const name = place.displayName?.text || "";
-    const addr = place.formattedAddress || "";
+    const name = place.name || "";
+    const addr = place.formatted_address || "";
     hits.push({
-      placeId: place.id ? String(place.id).replace(/^places\//, "") : undefined,
+      placeId: place.place_id,
       label: placeLabel(name, addr),
       lat: la as number,
       lng: ln as number,
@@ -274,23 +234,11 @@ export async function googleSuggest(q: string, lat?: number, lon?: number): Prom
     }),
   ]);
 
-  const tokens = queryTokens(query);
   const queries = autoHits.filter((h) => h.searchQuery);
-  const places = dedupeHits([...textHits, ...autoHits.filter((h) => !h.searchQuery)]);
-  const used = tokens.length >= 2 ? places.filter((h) => hitCoversQuery(h, tokens)) : places;
-  const extraQuery =
-    tokens.length >= 2 && !queries.some((h) => (h.searchQuery || "").toLowerCase() === query.toLowerCase())
-      ? [{
-          kind: "query" as const,
-          name: query,
-          sub: "",
-          label: query,
-          searchQuery: query,
-          lat: null,
-          lng: null,
-        }]
-      : [];
-  return dedupeHits([...queries, ...extraQuery, ...used]).slice(0, 10);
+  const autoPlaces = autoHits.filter((h) => !h.searchQuery);
+  const rare = distinctiveTokens(query);
+  const autoKeep = rare.length ? autoPlaces.filter((h) => hitCoversQuery(h, rare)) : autoPlaces;
+  return dedupeHits([typedQueryHit(query), ...queries, ...textHits, ...autoKeep]).slice(0, 10);
 }
 
 function geocodeName(r: {

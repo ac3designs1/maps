@@ -12,6 +12,13 @@ export type SuggestHit = {
   searchQuery?: string;
 };
 
+const AREA_WORDS = new Set([
+  "north", "south", "east", "west", "central", "coast", "upper", "lower", "inner", "outer",
+  "new", "wales", "city", "town", "park", "beach", "island", "point", "bay", "heights",
+  "valley", "hills", "creek", "river", "port", "mount", "saint", "junction", "harbour",
+  "harbor", "nsw", "qld", "vic", "tas", "act",
+]);
+
 export function queryTokens(q: string) {
   if (/^\d/.test(String(q).trim())) return [];
   return String(q)
@@ -20,10 +27,21 @@ export function queryTokens(q: string) {
     .filter((t) => t.length >= 4);
 }
 
+export function distinctiveTokens(q: string) {
+  const tokens = queryTokens(q);
+  const rare = tokens.filter((t) => !AREA_WORDS.has(t));
+  return rare.length ? rare : tokens;
+}
+
 export function hitCoversQuery(h: SuggestHit, tokens: string[]) {
   if (!tokens.length) return true;
   const hay = `${h.name || ""} ${h.sub || ""} ${h.label || ""} ${h.searchQuery || ""}`.toLowerCase();
   return tokens.every((t) => hay.includes(t));
+}
+
+export function typedQueryHit(query: string): SuggestHit {
+  const q = query.trim();
+  return { kind: "query", name: q, sub: "", label: q, searchQuery: q, lat: null, lng: null };
 }
 
 export function tidyAddr(addr: string, name?: string) {
@@ -340,15 +358,7 @@ export async function suggest(q: string, lat?: number, lon?: number): Promise<Su
   if (hasGoogleKey()) {
     try {
       const google = await googleSuggest(query, lat, lon);
-      if (google.length) {
-        const ranked = rankHits(query, google, lat, lon);
-        const tokens = queryTokens(query);
-        if (tokens.length >= 2) {
-          const tight = ranked.filter((h) => h.searchQuery || hitCoversQuery(h, tokens));
-          if (tight.length) return tight.slice(0, 10);
-        }
-        return ranked.slice(0, 10);
-      }
+      if (google.length) return rankHits(query, google, lat, lon).slice(0, 10);
     } catch (err) {
       console.warn("Google suggest fallback:", err instanceof Error ? err.message : err);
     }
@@ -362,10 +372,7 @@ export async function suggest(q: string, lat?: number, lon?: number): Promise<Su
     ...(photon.status === "fulfilled" ? photon.value : []),
     ...(nomi.status === "fulfilled" ? nomi.value : []),
   ].filter((h) => Number.isFinite(h.lat) && Number.isFinite(h.lng) && inAustralia(h.lat as number, h.lng as number));
-  const tokens = queryTokens(query);
-  const ranked = rankHits(query, dedupe(merged), lat, lon);
-  if (tokens.length >= 2) return ranked.filter((h) => hitCoversQuery(h, tokens)).slice(0, 8);
-  return ranked.slice(0, 8);
+  return rankHits(query, dedupe([typedQueryHit(query), ...merged]), lat, lon).slice(0, 8);
 }
 
 export async function geocode(q: string, lat?: number, lon?: number): Promise<SuggestHit | null> {
@@ -373,9 +380,9 @@ export async function geocode(q: string, lat?: number, lon?: number): Promise<Su
   if (query.length < 2) return null;
 
   const { googleGeocode, hasGoogleKey } = await import("./google.ts");
-  const tokens = queryTokens(query);
+  const tokens = distinctiveTokens(query);
   const usable = (h: SuggestHit | null) =>
-    !!(h && !h.searchQuery && (h.placeId || Number.isFinite(h.lat as number)) && (tokens.length < 2 || hitCoversQuery(h, tokens)));
+    !!(h && !h.searchQuery && (h.placeId || Number.isFinite(h.lat as number)) && (!tokens.length || hitCoversQuery(h, tokens)));
 
   if (hasGoogleKey()) {
     try {
