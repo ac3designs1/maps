@@ -2323,16 +2323,23 @@ function importTripFromUrl() {
     navigator.serviceWorker.register("/sw.js").catch(() => {});
   }
   const DISMISS_KEY = "install_dismissed";
-  // Already installed as PWA — hide everything
   const isStandalone = window.matchMedia("(display-mode:standalone)").matches
     || window.navigator.standalone === true;
   if (isStandalone) return;
-  // Don't nag if user already dismissed in the last 30 days
-  const dismissed = Number(localStorage.getItem(DISMISS_KEY) || 0);
-  if (Date.now() - dismissed < 30 * 86400000) return;
 
   const ua = navigator.userAgent;
   const isIOS = /iP(hone|ad|od)/.test(ua) && !/CriOS/.test(ua);
+  const hint = $("installHint");
+  if (hint && /Android/i.test(ua)) {
+    hint.innerHTML = "Tap the <strong>red arrow</strong> at the top of Chrome → <strong>Add to Home screen</strong>.";
+    hint.classList.remove("hidden");
+  } else if (hint && isIOS) {
+    hint.innerHTML = "Tap <strong>Share</strong> then <strong>Add to Home Screen</strong>.";
+    hint.classList.remove("hidden");
+  }
+
+  const dismissed = Number(localStorage.getItem(DISMISS_KEY) || 0);
+  if (!/Android/i.test(ua) && Date.now() - dismissed < 30 * 86400000) return;
 
   function dismiss(key) {
     localStorage.setItem(key || DISMISS_KEY, String(Date.now()));
@@ -2382,10 +2389,10 @@ function importTripFromUrl() {
     setTimeout(() => {
       if (deferredPrompt || !banner.classList.contains("hidden")) return;
       title.textContent = "Add to Home screen";
-      sub.textContent = "Chrome menu → Add to Home screen";
+      sub.textContent = "Tap the red arrow → Add to Home screen";
       addBtn.classList.add("hidden");
       banner.classList.remove("hidden");
-    }, 2500);
+    }, 600);
 
     addBtn.addEventListener("click", async () => {
       banner.classList.add("hidden");

@@ -295,7 +295,9 @@ body, .screen-list, .screen-planner, .sheet, .modal {
 .empty-state.hidden { display:none !important; }
 .empty-icon { margin-bottom:22px; }
 .empty-state h2 { margin:0 0 10px; font-size:23px; font-weight:800; letter-spacing:-.04em; }
-.empty-state p  { margin:0 0 28px; color:var(--t2); font-size:15px; line-height:1.6; }
+.empty-state p  { margin:0 0 14px; color:var(--t2); font-size:15px; line-height:1.6; }
+.install-hint { margin:0 0 22px !important; font-size:14px !important; }
+.install-hint.hidden { display:none !important; }
 
 /* ══════════════════════════════════════════════════
    PLANNER SCREEN
