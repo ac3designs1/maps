@@ -132,31 +132,26 @@ button:focus-visible, a:focus-visible { outline:2px solid var(--blue); outline-o
   -webkit-overflow-scrolling:touch;
   overscroll-behavior-y:contain;
   scrollbar-width:none;
-  padding-bottom:8px;
+  padding-bottom:16px;
 }
 .tab-pane.is-on { display:flex; }
 .tab-pane::-webkit-scrollbar { display:none; }
 
 .tab-bar {
   flex-shrink:0; display:flex; z-index:6;
-  background:color-mix(in srgb, var(--card) 92%, transparent);
+  background:var(--card);
   border-top:.33px solid var(--border);
-  padding:4px 0 calc(2px + var(--sab));
-  backdrop-filter:saturate(200%) blur(24px);
-  -webkit-backdrop-filter:saturate(200%) blur(24px);
+  padding:6px 0 calc(6px + var(--sab));
 }
 .tab-btn {
-  flex:1; min-height:50px;
-  display:flex; flex-direction:column; align-items:center; justify-content:flex-start;
-  gap:2px; color:var(--t3); font-size:10px; font-weight:500;
-  letter-spacing:.01em; padding-top:6px;
+  flex:1; min-height:44px;
+  display:flex; flex-direction:column; align-items:center; justify-content:center;
+  gap:3px; color:var(--t3); font-size:10px; font-weight:500;
+  letter-spacing:.01em;
 }
-.tab-ico { width:24px; height:24px; display:block; position:relative; }
-.tab-ico svg { display:block; }
-.tab-fill { display:none; }
+.tab-btn svg { display:block; flex-shrink:0; }
 .tab-btn.is-on { color:var(--blue); font-weight:600; }
-.tab-btn.is-on .tab-line { display:none; }
-.tab-btn.is-on .tab-fill { display:block; }
+.tab-btn.is-on svg { stroke-width:2.2; }
 .tab-btn:active { opacity:.55; }
 
 .home-search {

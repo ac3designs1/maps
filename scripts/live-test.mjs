@@ -39,16 +39,16 @@ try {
   // Static
   {
     const { status, text } = await req("/");
-    if (status === 200 && text.includes("app.js?v=69") && text.includes("styles.css?v=69") && text.includes("vendor/leaflet.js") && !text.includes("unpkg.com/leaflet") && text.includes("black-translucent") && text.includes("bootSplash") && text.includes("interactive-widget") && text.includes("format-detection") && text.includes("tabBar") && text.includes("homeWhere") && text.includes("ca-pub-6171482823199192")) ok("GET /", "cache v=69 local leaflet");
+    if (status === 200 && text.includes("app.js?v=70") && text.includes("styles.css?v=70") && text.includes("vendor/leaflet.js") && !text.includes("unpkg.com/leaflet") && text.includes("black-translucent") && text.includes("bootSplash") && text.includes("interactive-widget") && text.includes("format-detection") && text.includes("tabBar") && text.includes("homeWhere") && text.includes("ca-pub-6171482823199192")) ok("GET /", "cache v=70 local leaflet");
     else fail("GET /", "status " + status);
   }
   {
-    const { status, text } = await req("/styles.css?v=69");
+    const { status, text } = await req("/styles.css?v=70");
     if (status === 200 && text.includes(".screen-planner") && text.includes("pointer-events:none") && text.includes(".action-chip.is-hot") && text.includes(".mrow.checked") && text.includes("pinch-zoom") && text.includes("calc(100% - 58px") && text.includes("var(--kb)") && text.includes(".sug-row.is-on") && text.includes(".dwell-btn") && text.includes(".trip-dup") && text.includes(".trip-del-reveal") && text.includes(".btn-danger") && text.includes(".stop-row.is-done") && text.includes(".install-hint") && text.includes("html.is-standalone") && text.includes(".sug-skel") && text.includes("100dvh") && text.includes("#bootSplash") && text.includes("user-select:none") && text.includes(".tab-bar") && text.includes(".home-search") && text.includes(".ios-switch") && text.includes(".header-add")) ok("GET styles.css");
     else fail("GET styles.css", "status " + status);
   }
   {
-    const { status, text } = await req("/app.js?v=69");
+    const { status, text } = await req("/app.js?v=70");
     if (status === 200 && text.includes("function pinHereFirst") && text.includes("hereDisplay")) ok("GET app.js");
     else fail("GET app.js", "status " + status);
     const guards = ["function backToList", "lockStart:isHereStop(S.trip.stops[0])", "readOnly", "is-hot", "function updateHereDot", "You're offline.", "function forgetLast", "isHereStop(stop) && !hit.here", "smoothFactor:0", "startTrafficWatch", "trafficDelayS", "maps.recentPlaces", "function runSuggest", "function cancelSuggest", "function matchLocalPlaces", "function queryTokens", "hit.searchQuery", "function typedQueryHit", "function withTypedQuery", "Search this address", "Couldn't search", "Couldn't build the drive", "Open Waze to navigate", "function isStandalonePwa", "is-standalone", "function paintSearchError", "sug-skel", "function duplicateTrip", "function setRecords", "function dwellMinutes", "data-more=\"paste\"", "data-more=\"here\"", "function confirmDeleteTrip", "trip-del-reveal", "function routeStops", "function cycleStopState", "function openLeaveModal", "hoursWeek", "window.Capacitor?.Plugins?.Geolocation", "function isNativeApp", "function nativeInit", "serviceWorker.register", "function focusLatLng", "latLngToContainerPoint", "function feelNative", "function setThemeColor", "scrollRestoration", "function showTab", "function startTripToHit", "function iosSwitch", "function readPrefs", "function maybeLaunchAd", "homeWhere"];
@@ -87,16 +87,16 @@ try {
   }
   {
     const { status, text } = await req("/sw.js");
-    if (status === 200 && text.includes("trips-v69")) ok("GET sw.js");
+    if (status === 200 && text.includes("trips-v70")) ok("GET sw.js");
     else fail("GET sw.js", "status " + status);
   }
   {
-    const { status, text } = await req("/vendor/leaflet.js?v=69");
+    const { status, text } = await req("/vendor/leaflet.js?v=70");
     if (status === 200 && text.length > 10000) ok("GET vendor leaflet.js", text.length + " bytes");
     else fail("GET vendor leaflet.js", "status " + status);
   }
   {
-    const { status, text } = await req("/vendor/leaflet.css?v=69");
+    const { status, text } = await req("/vendor/leaflet.css?v=70");
     if (status === 200 && text.includes(".leaflet-container")) ok("GET vendor leaflet.css");
     else fail("GET vendor leaflet.css", "status " + status);
   }
@@ -373,7 +373,7 @@ try {
   // IDs in HTML exist in JS
   {
     const html = (await req("/")).text;
-    const js = (await req("/app.js?v=69")).text;
+    const js = (await req("/app.js?v=70")).text;
     const ids = [...html.matchAll(/id="([^"]+)"/g)].map(m => m[1]);
     const missing = ids.filter(id => !js.includes('"' + id + '"') && !js.includes("'" + id + "'") && !["mapToggleIcon","mapToggleLabel","navTitle","navSub","continueTitle","continueSub","installTitle","installSub","iosShareWord","tabHome","tabTrips","tabSettings","homeGoHomeSub","homeGoWorkSub","homeRecentsHead","launchAdSlot","launchAdContinue"].includes(id));
     // map/list structural ids that JS must touch
