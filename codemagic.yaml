@@ -1,13 +1,13 @@
 # Codemagic cloud builds for Trips (Windows → App Store).
-# After pushing this file: Codemagic → Check for configuration files → Start new build.
 #
-# One-time setup in Codemagic (not in this file):
-# 1. Team settings → Integrations → App Store Connect API key, name it exactly: codemagic
-# 2. Apple Developer Portal integration (so Codemagic can create the App Store cert + profile)
-# 3. Create the app in App Store Connect with bundle id com.ac3designs.trips
-# 4. Optional env var APP_STORE_APP_ID = the number from App Store Connect → App Information
+# One-time setup (Codemagic UI, not this file):
+# 1. Paid Apple Developer Program
+# 2. Team integrations → App Store Connect API key, name it exactly: codemagic
+#    (App Store Connect → Users and Access → Integrations → App Store Connect API → App Manager key)
+# 3. App Store Connect → New App, bundle id com.ac3designs.trips
+# 4. Optional env var APP_STORE_APP_ID = the number from App Information
 #
-# First upload goes to TestFlight, not straight to App Review.
+# This workflow creates the App Store cert + profile on Apple if they do not exist yet.
 
 workflows:
   ios-app-store:
@@ -17,10 +17,8 @@ workflows:
     integrations:
       app_store_connect: codemagic
     environment:
-      ios_signing:
-        distribution_type: app_store
-        bundle_identifier: com.ac3designs.trips
       vars:
+        BUNDLE_ID: com.ac3designs.trips
         XCODE_PROJECT: ios/App/App.xcodeproj
         XCODE_SCHEME: App
       node: 22
@@ -30,6 +28,15 @@ workflows:
         script: npm install
       - name: Sync Capacitor iOS
         script: npx cap sync ios
+      - name: Set up keychain
+        script: keychain initialize
+      - name: Fetch or create App Store signing files
+        script: |
+          app-store-connect fetch-signing-files "$BUNDLE_ID" \
+            --type IOS_APP_STORE \
+            --create
+      - name: Add certificates to keychain
+        script: keychain add-certificates
       - name: Set up code signing
         script: xcode-project use-profiles
       - name: Increment build number

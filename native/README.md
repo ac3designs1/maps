@@ -44,9 +44,9 @@ You cannot archive with Xcode on this PC. Use [Codemagic](https://codemagic.io) 
 
 1. Apple Developer Program (~A$99/year) and an app in [App Store Connect](https://appstoreconnect.apple.com) with bundle id `com.ac3designs.trips`.
 2. Codemagic → Team integrations:
-   - **App Store Connect API key**, name it exactly `codemagic`
-   - **Apple Developer Portal** (lets Codemagic create the signing cert)
-3. Click **Check for configuration files**, then start the **Trips iOS (TestFlight)** workflow.
+   - **App Store Connect API key**, name it exactly `codemagic` (App Manager access)
+3. Click **Check for configuration files**, then start **Trips iOS (TestFlight)**.
+   The workflow creates the App Store certificate and profile on Apple if they are missing.
 4. The first successful build lands in **TestFlight**. App Review still needs screenshots and the privacy URL in App Store Connect.
 
 `codemagic.yaml` is in the repo root. Do not turn on App Review auto-submit until the listing is filled in.
