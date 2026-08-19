@@ -776,7 +776,8 @@ button.stop-dot:disabled { cursor:default; }
   animation:slideUpBanner .3s cubic-bezier(.34,1.56,.64,1) both;
 }
 html.is-native .install-banner,
-html.is-native .ios-tooltip { display:none !important; }
+html.is-native .ios-tooltip,
+html.is-native .android-tooltip { display:none !important; }
 
 @keyframes slideUpBanner { from { opacity:0; transform:translateY(16px); } to { opacity:1; transform:none; } }
 .install-icon {
@@ -826,6 +827,25 @@ html.is-native .ios-tooltip { display:none !important; }
   border-radius:50%; transition:background .15s; margin-left:4px;
 }
 .ios-close:hover { background:rgba(255,255,255,.1); }
+.android-tooltip {
+  position:fixed; top:calc(12px + var(--sat,0px)); right:10px;
+  z-index:90; max-width:min(78vw,300px); width:max-content;
+  animation:slideUpBanner .3s cubic-bezier(.34,1.56,.64,1) both;
+}
+.android-tooltip.hidden { display:none !important; }
+.android-tooltip-arrow {
+  width:0; height:0; margin-left:auto; margin-right:18px;
+  border-left:10px solid transparent; border-right:10px solid transparent;
+  border-bottom:10px solid rgba(26,28,30,.94);
+}
+.android-tooltip-body {
+  background:rgba(26,28,30,.94); color:#fff;
+  border-radius:16px; padding:14px 16px;
+  display:flex; align-items:center; gap:10px;
+  font-size:14px; line-height:1.45;
+  box-shadow:0 8px 32px rgba(0,0,0,.45);
+  backdrop-filter:blur(20px); -webkit-backdrop-filter:blur(20px);
+}
 
 /* ── Optimise nudge ──────────────────────────────── */
 .optimise-nudge {

@@ -2373,29 +2373,30 @@ function importTripFromUrl() {
     setTimeout(() => tip.classList.add("hidden"), 13000);
 
   } else if (/Android/i.test(ua)) {
-    let deferredPrompt = null;
+    const tip = $("androidTooltip");
     const banner = $("installBanner");
     const title = $("installTitle");
     const sub = $("installSub");
     const addBtn = $("installBtn");
+    let deferredPrompt = null;
+    setTimeout(() => tip?.classList.remove("hidden"), 800);
+    $("androidClose")?.addEventListener("click", () => {
+      tip?.classList.add("hidden");
+      dismiss(DISMISS_KEY);
+    });
     window.addEventListener("beforeinstallprompt", (e) => {
       e.preventDefault();
       deferredPrompt = e;
+      const span = tip?.querySelector("span");
+      if (span) span.innerHTML = "Tap <strong>Add</strong> below to put Trips on your home screen";
       title.textContent = "Install Trips";
       sub.textContent = "Add it like an app";
       addBtn.classList.remove("hidden");
-      setTimeout(() => banner.classList.remove("hidden"), 800);
-    });
-    setTimeout(() => {
-      if (deferredPrompt || !banner.classList.contains("hidden")) return;
-      title.textContent = "Add to Home screen";
-      sub.textContent = "Tap the red arrow → Add to Home screen";
-      addBtn.classList.add("hidden");
       banner.classList.remove("hidden");
-    }, 600);
-
+    });
     addBtn.addEventListener("click", async () => {
       banner.classList.add("hidden");
+      tip?.classList.add("hidden");
       if (deferredPrompt) {
         deferredPrompt.prompt();
         const { outcome } = await deferredPrompt.userChoice;
@@ -2403,14 +2404,13 @@ function importTripFromUrl() {
         deferredPrompt = null;
       }
     });
-
     $("installDismiss").addEventListener("click", () => {
       banner.classList.add("hidden");
       dismiss(DISMISS_KEY);
     });
-
     window.addEventListener("appinstalled", () => {
       banner.classList.add("hidden");
+      tip?.classList.add("hidden");
     });
   } else if (/Chrome/.test(ua)) {
     // Desktop Chrome: system install prompt
